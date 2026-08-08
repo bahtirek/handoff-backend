@@ -7,6 +7,7 @@ import { logger } from "./config/logger";
 
 import healthRoutes from "./routes/health.routes";
 import sessionRoutes from "./routes/session.routes";
+import photoRoutes from "./routes/photo.routes";
 
 
 export const app = express();
@@ -37,4 +38,9 @@ app.use(
 app.use(
   "/health",
   healthRoutes
+);
+
+app.use(
+  "/api/sessions",
+  photoRoutes
 );
