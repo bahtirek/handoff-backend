@@ -16,6 +16,20 @@ import {
   authenticateHelper
 } from "../session/helper-auth.service";
 
+import {
+  deletePhotoObject,
+  downloadPhotoForValidation,
+  getPhotoMetadata
+} from "../storage/storage.service";
+
+import {
+  releaseUpload,
+  rollbackUploadReservation
+} from "../upload/upload-limit.service";
+
+import {
+  validatePhoto
+} from "./photo-validation.service";
 
 export class PhotoError extends Error {
 
@@ -25,6 +39,8 @@ export class PhotoError extends Error {
       | "session_ended"
       | "buffer_full"
       | "photo_limit_reached"
+      |"photo_not_found"
+      |"invalid_upload"
   ) {
 
     super(code);
@@ -144,15 +160,239 @@ export async function createPhotoUpload(
 
   } catch (error) {
 
-    /*
-     * If PostgreSQL or R2 URL creation fails,
-     * release the Redis reservation.
-     */
-    // We will add a proper reservation rollback
-    // immediately after the basic flow works.
+    await rollbackUploadReservation(
+      sessionId
+    ).catch(() => undefined);
 
     throw error;
 
   }
+
+}
+
+export async function completePhotoUpload(
+  sessionId: string,
+  photoId: string,
+  token: string
+) {
+
+  const claim =
+    await authenticateHelper(
+      sessionId,
+      token
+    );
+
+
+  if (!claim) {
+
+    throw new PhotoError(
+      "invalid_token"
+    );
+
+  }
+
+
+  const session =
+    await prisma.session.findUnique({
+      where: {
+        id: sessionId
+      }
+    });
+
+
+  if (
+    !session ||
+    session.status !== "ACTIVE"
+  ) {
+
+    throw new PhotoError(
+      "session_ended"
+    );
+
+  }
+
+
+  const photo =
+    await prisma.photo.findFirst({
+      where: {
+        id: photoId,
+        sessionId
+      }
+    });
+
+
+  if (!photo) {
+
+    throw new PhotoError(
+      "photo_not_found"
+    );
+
+  }
+
+
+  if (
+    photo.status !== "UPLOADING"
+  ) {
+
+    return {
+      ok: true
+    };
+
+  }
+
+
+  let buffer: Buffer;
+
+  try {
+
+    const metadata =
+      await getPhotoMetadata(
+        photo.storageKey
+      );
+
+
+    if (
+      !metadata.ContentLength ||
+      metadata.ContentLength >
+      10 * 1024 * 1024
+    ) {
+
+      throw new Error(
+        "image_too_large"
+      );
+
+    }
+
+
+    buffer =
+      await downloadPhotoForValidation(
+        photo.storageKey
+      );
+
+
+  } catch (error) {
+
+    await deletePhotoObject(
+      photo.storageKey
+    ).catch(() => undefined);
+
+
+    await prisma.photo.update({
+      where: {
+        id: photo.id
+      },
+
+      data: {
+        status: "DELETED",
+        deletedAt: new Date()
+      }
+    });
+
+
+    await releaseUpload(
+      sessionId
+    );
+
+
+    throw new PhotoError(
+      "invalid_upload"
+    );
+
+  }
+
+
+  let validated;
+
+  try {
+
+    validated =
+      await validatePhoto(
+        buffer
+      );
+
+  } catch (error) {
+
+    await deletePhotoObject(
+      photo.storageKey
+    ).catch(() => undefined);
+
+
+    await prisma.photo.update({
+      where: {
+        id: photo.id
+      },
+
+      data: {
+        status: "DELETED",
+        deletedAt: new Date()
+      }
+    });
+
+
+    await releaseUpload(
+      sessionId
+    );
+
+
+    throw new PhotoError(
+      "invalid_upload"
+    );
+
+  }
+
+
+  await prisma.photo.update({
+
+    where: {
+      id: photo.id
+    },
+
+    data: {
+
+      status: "READY",
+
+      contentType:
+        validated.contentType,
+
+      sizeBytes:
+        validated.sizeBytes,
+
+      width:
+        validated.width,
+
+      height:
+        validated.height,
+
+      uploadedAt:
+        new Date()
+
+    }
+
+  });
+
+
+  await releaseUpload(
+    sessionId
+  );
+
+
+  await prisma.session.update({
+
+    where: {
+      id: sessionId
+    },
+
+    data: {
+      photoCount: {
+        increment: 1
+      }
+    }
+
+  });
+
+
+  return {
+    ok: true
+  };
 
 }

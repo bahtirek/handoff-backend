@@ -32,7 +32,9 @@ const schema = z.object({
 
   R2_BUCKET_NAME: z.string().min(1),
 
-  R2_ENDPOINT: z.string().url()
+  R2_ENDPOINT: z.string().url(),
+
+  DELIVERY_SAFETY_NET_MS: z.coerce.number().min(0).default(172800000)
 });
 
 export const env = schema.parse(process.env);

@@ -36,11 +36,12 @@ model Session {
   pairingSecretHash String?
   status            SessionStatus @default(PAIRING)
 
-  pairingExpiresAt DateTime
-  claimedAt        DateTime?
-  finishedAt       DateTime?
-  closedAt         DateTime?
-  closedReason     CloseReason?
+  pairingExpiresAt  DateTime
+  claimedAt         DateTime?
+  deliveryExpiresAt DateTime?
+  finishedAt        DateTime?
+  closedAt          DateTime?
+  closedReason      CloseReason?
 
   photoCount      Int @default(0)
   downloadedCount Int @default(0)
@@ -54,6 +55,7 @@ model Session {
 
   @@index([status])
   @@index([pairingExpiresAt])
+  @@index([deliveryExpiresAt])
   @@index([closedAt])
 }
 

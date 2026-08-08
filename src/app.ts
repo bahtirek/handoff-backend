@@ -13,11 +13,6 @@ import photoRoutes from "./routes/photo.routes";
 export const app = express();
 
 app.use(
-  "/api/sessions",
-  sessionRoutes
-);
-
-app.use(
   helmet()
 );
 
@@ -38,6 +33,11 @@ app.use(
 app.use(
   "/health",
   healthRoutes
+);
+
+app.use(
+  "/api/sessions",
+  sessionRoutes
 );
 
 app.use(

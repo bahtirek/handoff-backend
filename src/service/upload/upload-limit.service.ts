@@ -89,3 +89,34 @@ export async function releaseUpload(
     uploadKey(sessionId)
   );
 }
+
+export async function rollbackUploadReservation(
+  sessionId: string
+) {
+
+  const result =
+    await redis.eval(
+      `
+      local active =
+        tonumber(redis.call("GET", KEYS[1]) or "0")
+
+      local lifetime =
+        tonumber(redis.call("GET", KEYS[2]) or "0")
+
+      if active > 0 then
+        redis.call("DECR", KEYS[1])
+      end
+
+      if lifetime > 0 then
+        redis.call("DECR", KEYS[2])
+      end
+
+      return 1
+      `,
+      2,
+      uploadKey(sessionId),
+      lifetimeKey(sessionId)
+    );
+
+  return result;
+}
