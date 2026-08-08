@@ -22,9 +22,17 @@ const schema = z.object({
 
   PAIRING_SECRET_PEPPER: z.string().min(32),
 
-  CLAIM_BASE_URL: z
-    .string()
-    .url()
+  CLAIM_BASE_URL: z.string().url(),
+
+  R2_ACCOUNT_ID: z.string().min(1),
+
+  R2_ACCESS_KEY_ID: z.string().min(1),
+
+  R2_SECRET_ACCESS_KEY: z.string().min(1),
+
+  R2_BUCKET_NAME: z.string().min(1),
+
+  R2_ENDPOINT: z.string().url()
 });
 
 export const env = schema.parse(process.env);
