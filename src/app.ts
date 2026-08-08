@@ -4,6 +4,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 
 import { logger } from "./config/logger";
+import { errorHandler } from "./middleware/error-handler";
 
 import healthRoutes from "./routes/health.routes";
 import sessionRoutes from "./routes/session.routes";
@@ -44,3 +45,4 @@ app.use(
   "/api/sessions",
   photoRoutes
 );
+app.use(errorHandler);
