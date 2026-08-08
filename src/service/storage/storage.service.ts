@@ -81,3 +81,28 @@ export async function deletePhotoObject(
     })
   );
 }
+
+export async function createPhotoDownloadUrl(
+  storageKey: string
+) {
+  const command = new GetObjectCommand({
+    Bucket: env.R2_BUCKET_NAME,
+    Key: storageKey,
+    ChecksumMode: undefined,
+  });
+
+  const url = await getSignedUrl(
+    storage,
+    command,
+    {
+      expiresIn: 5 * 60,
+    }
+  );
+
+  return {
+    url,
+    expiresAt: new Date(
+      Date.now() + 5 * 60 * 1000
+    ),
+  };
+}

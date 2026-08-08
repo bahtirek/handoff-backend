@@ -6,6 +6,14 @@ import {
   completePhotoUpload,
 } from "../service/photo/photo.service";
 
+import {
+  deletePhotoObject,
+  downloadPhotoForValidation,
+  getPhotoMetadata,
+  createPhotoDownloadUrl
+} from "../service/storage/storage.service";
+import { authenticateHelper } from "../service/session/helper-auth.service";
+import { prisma } from "../db/prisma";
 
 const router = Router();
 
@@ -205,5 +213,95 @@ router.post(
   }
 );
 
+router.get(
+  "/:id/photos/:photoId/download",
+  async (req, res, next) => {
+
+    try {
+
+      const token =
+        req.query.token;
+
+      if (
+        typeof token !== "string"
+      ) {
+
+        return res
+          .status(403)
+          .json({
+            error: "invalid_token"
+          });
+
+      }
+
+      const claim =
+        await authenticateHelper(
+          req.params.id,
+          token
+        );
+
+      if (!claim) {
+
+        return res
+          .status(403)
+          .json({
+            error: "invalid_token"
+          });
+
+      }
+
+      const photo =
+        await prisma.photo.findFirst({
+          where: {
+            id: req.params.photoId,
+            sessionId: req.params.id
+          }
+        });
+
+      if (!photo) {
+
+        return res
+          .status(404)
+          .json({
+            error: "photo_not_found"
+          });
+
+      }
+
+      if (
+        photo.status !== "READY"
+      ) {
+
+        return res
+          .status(409)
+          .json({
+            error: "photo_not_ready"
+          });
+
+      }
+
+      const download =
+        await createPhotoDownloadUrl(
+          photo.storageKey
+        );
+
+      return res
+        .status(200)
+        .json({
+          downloadUrl:
+            download.url,
+
+          expiresAt:
+            download.expiresAt.toISOString()
+        });
+
+    } catch (error) {
+
+      next(error);
+
+    }
+
+  }
+);
 
 export default router;

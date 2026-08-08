@@ -3,6 +3,7 @@ import { Router } from "express";
 import {
   claimSession,
   createSession,
+  finishSession,
 } from "../service/session/session.service";
 
 const router = Router();
@@ -26,6 +27,18 @@ router.post("/:id/claim", async (req, res, next) => {
       id,
       secret
     );
+
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/:id/finish", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const result = await finishSession(id);
 
     res.status(200).json(result);
   } catch (error) {

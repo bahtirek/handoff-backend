@@ -31,6 +31,10 @@ import {
   validatePhoto
 } from "./photo-validation.service";
 
+import {
+  getActiveSession
+} from "../session/session-state.service";
+
 export class PhotoError extends Error {
 
   constructor(
@@ -68,24 +72,16 @@ export async function createPhotoUpload(
   }
 
 
-  const session =
-    await prisma.session.findUnique({
-      where: {
-        id: sessionId
-      }
-    });
+const session =
+  await getActiveSession(
+    sessionId
+  );
 
-
-  if (
-    !session ||
-    session.status !== "ACTIVE"
-  ) {
-
-    throw new PhotoError(
-      "session_ended"
-    );
-
-  }
+if (!session) {
+  throw new PhotoError(
+    "session_ended"
+  );
+}
 
 
   const reservation =

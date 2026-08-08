@@ -1,7 +1,6 @@
 import { prisma } from "../../db/prisma";
 import { redis } from "../../db/redis";
 import { env } from "../../config/env";
-import crypto from "node:crypto";
 
 import {
   generateRandomId,
@@ -211,5 +210,42 @@ export async function claimSession(
 
   return {
     helperToken
+  };
+}
+
+export async function finishSession(
+  sessionId: string
+) {
+  const now = new Date();
+
+  const result =
+    await prisma.session.updateMany({
+      where: {
+        id: sessionId,
+        status: "ACTIVE"
+      },
+      data: {
+        status: "CLOSED",
+        closedReason: "FINISHED",
+        finishedAt: now,
+        closedAt: now
+      }
+    });
+
+  if (result.count !== 1) {
+    const error =
+      new Error("session_not_active");
+
+    (error as any).statusCode = 409;
+
+    throw error;
+  }
+
+  await redis.del(
+    `session:${sessionId}`
+  );
+
+  return {
+    ok: true
   };
 }

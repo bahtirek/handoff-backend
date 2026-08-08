@@ -7,6 +7,73 @@ datasource db {
   provider = "postgresql"
 }
 
+model Session {
+  id                String        @id
+  pairingSecretHash String?
+  status            SessionStatus @default(PAIRING)
+  pairingExpiresAt  DateTime
+  claimedAt         DateTime?
+  finishedAt        DateTime?
+  closedAt          DateTime?
+  closedReason      CloseReason?
+  photoCount        Int           @default(0)
+  downloadedCount   Int           @default(0)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deliveryExpiresAt DateTime?
+  claim             Claim?
+  photos            Photo[]
+  pushDevices       PushDevice[]
+
+  @@index([status])
+  @@index([pairingExpiresAt])
+  @@index([deliveryExpiresAt])
+  @@index([closedAt])
+}
+
+model Claim {
+  id              String    @id @default(uuid())
+  sessionId       String    @unique
+  helperTokenHash String
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+  session         Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([helperTokenHash])
+}
+
+model Photo {
+  id           String      @id
+  sessionId    String
+  storageKey   String      @unique
+  status       PhotoStatus @default(UPLOADING)
+  sizeBytes    Int
+  width        Int
+  height       Int
+  uploadedAt   DateTime?
+  downloadedAt DateTime?
+  deletedAt    DateTime?
+  createdAt    DateTime    @default(now())
+  contentType  String
+  session      Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([sessionId, status])
+}
+
+model PushDevice {
+  id        String   @id @default(uuid())
+  sessionId String
+  platform  Platform
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([platform, token])
+  @@index([sessionId])
+}
+
 enum SessionStatus {
   PAIRING
   ACTIVE
@@ -29,84 +96,4 @@ enum PhotoStatus {
 enum Platform {
   IOS
   ANDROID
-}
-
-model Session {
-  id                String        @id
-  pairingSecretHash String?
-  status            SessionStatus @default(PAIRING)
-
-  pairingExpiresAt  DateTime
-  claimedAt         DateTime?
-  deliveryExpiresAt DateTime?
-  finishedAt        DateTime?
-  closedAt          DateTime?
-  closedReason      CloseReason?
-
-  photoCount      Int @default(0)
-  downloadedCount Int @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  claim       Claim?
-  photos      Photo[]
-  pushDevices PushDevice[]
-
-  @@index([status])
-  @@index([pairingExpiresAt])
-  @@index([deliveryExpiresAt])
-  @@index([closedAt])
-}
-
-model Claim {
-  id              String @id @default(uuid())
-  sessionId       String @unique
-  helperTokenHash String
-
-  createdAt DateTime  @default(now())
-  revokedAt DateTime?
-
-  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-
-  @@index([helperTokenHash])
-}
-
-model Photo {
-  id        String @id
-  sessionId String
-
-  storageKey String      @unique
-  status     PhotoStatus @default(UPLOADING)
-
-  contentType   String
-  sizeBytes Int
-  width     Int
-  height    Int
-
-  uploadedAt   DateTime?
-  downloadedAt DateTime?
-  deletedAt    DateTime?
-
-  createdAt DateTime @default(now())
-
-  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-
-  @@index([sessionId])
-  @@index([sessionId, status])
-}
-
-model PushDevice {
-  id        String   @id @default(uuid())
-  sessionId String
-  platform  Platform
-  token     String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-
-  @@unique([platform, token])
-  @@index([sessionId])
 }
