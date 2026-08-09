@@ -4,6 +4,7 @@ import {
   claimSession,
   createSession,
   finishSession,
+  revokeHelper,
 } from "../service/session/session.service";
 
 const router = Router();
@@ -51,6 +52,20 @@ router.post("/:id/finish", async (req, res, next) => {
     );
 
     res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/:id/revoke", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    await revokeHelper(id);
+
+    res.status(200).json({
+      ok: true
+    });
   } catch (error) {
     next(error);
   }

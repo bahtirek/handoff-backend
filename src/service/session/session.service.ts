@@ -13,6 +13,7 @@ import {
 import {
   generateQrDataUrl
 } from "../qr/qr.service";
+import { authenticateHelper } from "./helper-auth.service";
 
 
 const PAIRING_WINDOW_SECONDS = 5 * 60;
@@ -214,8 +215,20 @@ export async function claimSession(
 }
 
 export async function finishSession(
-  sessionId: string
+  sessionId: string,
+  token: string
 ) {
+  const claim = await authenticateHelper(
+    sessionId,
+    token
+  );
+
+  if (!claim) {
+    const error = new Error("invalid_token");
+    (error as any).statusCode = 403;
+    throw error;
+  }
+
   const now = new Date();
 
   const result =
@@ -248,4 +261,33 @@ export async function finishSession(
   return {
     ok: true
   };
+}
+
+export async function revokeHelper(
+  sessionId: string
+) {
+  const claim = await prisma.claim.findUnique({
+    where: {
+      sessionId
+    }
+  });
+
+  if (!claim) {
+    const error = new Error("claim_not_found");
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  if (claim.revokedAt) {
+    return;
+  }
+
+  await prisma.claim.update({
+    where: {
+      sessionId
+    },
+    data: {
+      revokedAt: new Date()
+    }
+  });
 }
