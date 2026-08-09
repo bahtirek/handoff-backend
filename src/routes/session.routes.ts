@@ -37,8 +37,18 @@ router.post("/:id/claim", async (req, res, next) => {
 router.post("/:id/finish", async (req, res, next) => {
   try {
     const { id } = req.params;
+    const token = req.query.token;
 
-    const result = await finishSession(id);
+    if (typeof token !== "string") {
+      return res.status(403).json({
+        error: "invalid_token"
+      });
+    }
+
+    const result = await finishSession(
+      id,
+      token
+    );
 
     res.status(200).json(result);
   } catch (error) {
