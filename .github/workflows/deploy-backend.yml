@@ -1,0 +1,47 @@
+name: Build and Deploy Handoff Backend to HawkHost
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Deploy to HawkHost
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.HANDOFF_BACKEND_FTP_SERVER }}
+          username: ${{ secrets.HANDOFF_BACKEND_FTP_USERNAME }}
+          password: ${{ secrets.HANDOFF_BACKEND_FTP_PASSWORD }}
+          server-dir: ''
+          dangerous-clean-slate: true
+          local-dir: ./
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/.env
+            **/.env.*
+            **/dist/**/*.map
+            **/.DS_Store
