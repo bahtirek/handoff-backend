@@ -31,9 +31,9 @@ jobs:
       - name: Deploy to HawkHost
         uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
-          server: ${{ secrets.HANDOFF_BACKEND_FTP_SERVER }}
-          username: ${{ secrets.HANDOFF_BACKEND_FTP_USERNAME }}
-          password: ${{ secrets.HANDOFF_BACKEND_FTP_PASSWORD }}
+          server: ${{ secrets.HANDOFF_FTP_SERVER }}
+          username: ${{ secrets.HANDOFF_FTP_USERNAME }}
+          password: ${{ secrets.HANDOFF_FTP_PASSWORD }}
           server-dir: ''
           dangerous-clean-slate: true
           local-dir: ./
