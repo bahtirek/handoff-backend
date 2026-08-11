@@ -35,7 +35,7 @@ jobs:
           username: ${{ secrets.HANDOFF_FTP_USERNAME }}
           password: ${{ secrets.HANDOFF_FTP_PASSWORD }}
           server-dir: ''
-          dangerous-clean-slate: true
+          dangerous-clean-slate: false
           local-dir: ./
           exclude: |
               **/.git*
