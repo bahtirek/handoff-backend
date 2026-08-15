@@ -4,6 +4,7 @@ import {
   createPhotoUpload,
   PhotoError,
   completePhotoUpload,
+  markPhotoDownloaded
 } from "../service/photo/photo.service";
 
 import {
@@ -294,6 +295,62 @@ router.get(
           expiresAt:
             download.expiresAt.toISOString()
         });
+
+    } catch (error) {
+
+      next(error);
+
+    }
+
+  }
+);
+
+router.post(
+  "/:id/photos/:photoId/download-success",
+  async (req, res, next) => {
+
+    try {
+
+      const token =
+        req.query.token;
+
+      if (
+        typeof token !== "string"
+      ) {
+
+        return res
+          .status(403)
+          .json({
+            error: "invalid_token"
+          });
+
+      }
+
+      const claim =
+        await authenticateHelper(
+          req.params.id,
+          token
+        );
+
+      if (!claim) {
+
+        return res
+          .status(403)
+          .json({
+            error: "invalid_token"
+          });
+
+      }
+
+      const result =
+        await markPhotoDownloaded(
+          req.params.id,
+          req.params.photoId
+        );
+
+      return res
+        .status(200)
+        .json(result);
 
     } catch (error) {
 

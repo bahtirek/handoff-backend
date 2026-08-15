@@ -45,6 +45,7 @@ export class PhotoError extends Error {
       | "photo_limit_reached"
       |"photo_not_found"
       |"invalid_upload"
+      |"photo_not_ready"
   ) {
 
     super(code);
@@ -397,4 +398,58 @@ export async function completePhotoUpload(
     ok: true
   };
 
+}
+
+export async function markPhotoDownloaded(
+  sessionId: string,
+  photoId: string
+) {
+  const photo =
+    await prisma.photo.findFirst({
+      where: {
+        id: photoId,
+        sessionId
+      }
+    });
+
+  if (!photo) {
+    throw new PhotoError(
+      "photo_not_found"
+    );
+  }
+
+  if (photo.status !== "READY") {
+    throw new PhotoError(
+      "photo_not_ready"
+    );
+  }
+
+  const now = new Date();
+
+  await prisma.$transaction([
+    prisma.photo.update({
+      where: {
+        id: photoId
+      },
+      data: {
+        status: "DOWNLOADED",
+        downloadedAt: now
+      }
+    }),
+
+    prisma.session.update({
+      where: {
+        id: sessionId
+      },
+      data: {
+        downloadedCount: {
+          increment: 1
+        }
+      }
+    })
+  ]);
+
+  return {
+    ok: true
+  };
 }
