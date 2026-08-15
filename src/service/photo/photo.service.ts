@@ -141,9 +141,16 @@ if (!session) {
         storageKey
       );
 
+    await prisma.photo.update({
+      where: {
+        id: photoId
+      },
+      data: {
+        uploadExpiresAt: upload.expiresAt
+      }
+    });
 
     return {
-
       photoId,
 
       uploadUrl:
@@ -151,7 +158,6 @@ if (!session) {
 
       uploadExpiresAt:
         upload.expiresAt.toISOString()
-
     };
 
   } catch (error) {
