@@ -239,7 +239,7 @@ describe("Session API", () => {
       downloadedImage[1],
       0xd8
     );
-    
+
     const downloadSuccessResponse =
       await fetch(
         `${BASE_URL}/api/sessions/${session.sessionId}/photos/${photo.photoId}/download-success?token=${encodeURIComponent(
@@ -263,4 +263,676 @@ describe("Session API", () => {
       true
     );
   });
+});
+
+describe("Photo API security", () => {
+  it("rejects an invalid helper token", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      createResponse.status,
+      201
+    );
+
+    const session =
+      await createResponse.json();
+
+    assert.equal(
+      typeof session.sessionId,
+      "string"
+    );
+
+    const photoResponse = await fetch(
+      `${BASE_URL}/api/sessions/${session.sessionId}/photos?token=invalid-token`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      photoResponse.status,
+      403
+    );
+
+    const body =
+      await photoResponse.json();
+
+    assert.equal(
+      body.error,
+      "invalid_token"
+    );
+  });
+
+  it("rejects an invalid pairing secret", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      createResponse.status,
+      201
+    );
+
+    const session =
+      await createResponse.json();
+
+    const claimResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/claim`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            secret: "invalid-secret",
+          }),
+        }
+      );
+
+    assert.equal(
+      claimResponse.status,
+      403
+    );
+
+    const body =
+      await claimResponse.json();
+
+    assert.equal(
+      body.error,
+      "invalid_secret"
+    );
+  });
+
+  it("rejects completion when the photo was not uploaded", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      createResponse.status,
+      201
+    );
+
+    const session =
+      await createResponse.json();
+
+    const claimUrl =
+      new URL(session.claimUrl);
+
+    const secret =
+      claimUrl.searchParams.get("secret");
+
+    assert.ok(secret);
+
+    const claimResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/claim`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            secret,
+          }),
+        }
+      );
+
+    assert.equal(
+      claimResponse.status,
+      200
+    );
+
+    const claim =
+      await claimResponse.json();
+
+    assert.equal(
+      typeof claim.helperToken,
+      "string"
+    );
+
+    const photoResponse = await fetch(
+      `${BASE_URL}/api/sessions/${session.sessionId}/photos?token=${encodeURIComponent(
+        claim.helperToken
+      )}`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      photoResponse.status,
+      200
+    );
+
+    const photo =
+      await photoResponse.json();
+
+    assert.equal(
+      typeof photo.photoId,
+      "string"
+    );
+
+    const completeResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/photos/${photo.photoId}/complete?token=${encodeURIComponent(
+          claim.helperToken
+        )}`,
+        {
+          method: "POST",
+        }
+      );
+
+    assert.equal(
+      completeResponse.status,
+      400
+    );
+
+    const completeBody =
+      await completeResponse.json();
+
+    assert.equal(
+      completeBody.error,
+      "invalid_upload"
+    );
+
+    const secondCompleteResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/photos/${photo.photoId}/complete?token=${encodeURIComponent(
+          claim.helperToken
+        )}`,
+        {
+          method: "POST",
+        }
+      );
+
+    assert.equal(
+      secondCompleteResponse.status,
+      200
+    );
+
+    const secondCompleteBody =
+      await secondCompleteResponse.json();
+
+    assert.equal(
+      secondCompleteBody.ok,
+      true
+    );
+  });
+
+  it("rejects a second session claim", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      createResponse.status,
+      201
+    );
+
+    const session =
+      await createResponse.json();
+
+    const claimUrl =
+      new URL(session.claimUrl);
+
+    const secret =
+      claimUrl.searchParams.get("secret");
+
+    assert.ok(secret);
+
+    const firstClaimResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/claim`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            secret,
+          }),
+        }
+      );
+
+    assert.equal(
+      firstClaimResponse.status,
+      200
+    );
+
+    const firstClaim =
+      await firstClaimResponse.json();
+
+    assert.equal(
+      typeof firstClaim.helperToken,
+      "string"
+    );
+
+    assert.ok(
+      firstClaim.helperToken.length > 0
+    );
+
+    const secondClaimResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/claim`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            secret,
+          }),
+        }
+      );
+
+    assert.equal(
+      secondClaimResponse.status,
+      409
+    );
+
+    const secondClaimBody =
+      await secondClaimResponse.json();
+
+    assert.equal(
+      secondClaimBody.error,
+      "already_claimed"
+    );
+  });
+
+  it("rejects download with an invalid helper token", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      createResponse.status,
+      201
+    );
+
+    const session =
+      await createResponse.json();
+
+    const claimUrl =
+      new URL(session.claimUrl);
+
+    const secret =
+      claimUrl.searchParams.get("secret");
+
+    assert.ok(secret);
+
+    const claimResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/claim`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            secret,
+          }),
+        }
+      );
+
+    assert.equal(
+      claimResponse.status,
+      200
+    );
+
+    const claim =
+      await claimResponse.json();
+
+    assert.equal(
+      typeof claim.helperToken,
+      "string"
+    );
+
+    const photoResponse = await fetch(
+      `${BASE_URL}/api/sessions/${session.sessionId}/photos?token=${encodeURIComponent(
+        claim.helperToken
+      )}`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      photoResponse.status,
+      200
+    );
+
+    const photo =
+      await photoResponse.json();
+
+    assert.equal(
+      typeof photo.photoId,
+      "string"
+    );
+
+    const image =
+      await readFile("test.jpg");
+
+    const uploadResponse =
+      await fetch(
+        photo.uploadUrl,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "image/jpeg",
+          },
+          body: image,
+        }
+      );
+
+    assert.equal(
+      uploadResponse.status,
+      200
+    );
+
+    const completeResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/photos/${photo.photoId}/complete?token=${encodeURIComponent(
+          claim.helperToken
+        )}`,
+        {
+          method: "POST",
+        }
+      );
+
+    assert.equal(
+      completeResponse.status,
+      200
+    );
+
+    const completeBody =
+      await completeResponse.json();
+
+    assert.equal(
+      completeBody.ok,
+      true
+    );
+
+    const downloadResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/photos/${photo.photoId}/download?token=invalid-token`
+      );
+
+    assert.equal(
+      downloadResponse.status,
+      403
+    );
+
+    const downloadBody =
+      await downloadResponse.json();
+
+    assert.equal(
+      downloadBody.error,
+      "invalid_token"
+    );
+  });
+  it("rejects a helper token used with another session", async () => {
+    const createResponseA = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      createResponseA.status,
+      201
+    );
+
+    const sessionA =
+      await createResponseA.json();
+
+    const claimUrlA =
+      new URL(sessionA.claimUrl);
+
+    const secretA =
+      claimUrlA.searchParams.get("secret");
+
+    assert.ok(secretA);
+
+    const claimResponseA =
+      await fetch(
+        `${BASE_URL}/api/sessions/${sessionA.sessionId}/claim`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            secret: secretA,
+          }),
+        }
+      );
+
+    assert.equal(
+      claimResponseA.status,
+      200
+    );
+
+    const claimA =
+      await claimResponseA.json();
+
+    assert.equal(
+      typeof claimA.helperToken,
+      "string"
+    );
+    const createResponseB = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      createResponseB.status,
+      201
+    );
+
+    const sessionB =
+      await createResponseB.json();
+
+    assert.notEqual(
+      sessionA.sessionId,
+      sessionB.sessionId
+    );
+
+    const photoResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${sessionB.sessionId}/photos?token=${encodeURIComponent(
+          claimA.helperToken
+        )}`,
+        {
+          method: "POST",
+        }
+      );
+
+    assert.equal(
+      photoResponse.status,
+      403
+    );
+
+    const photoBody =
+      await photoResponse.json();
+
+    assert.equal(
+      photoBody.error,
+      "invalid_token"
+    );
+  });
+
+  it("finishes an active session", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(
+      createResponse.status,
+      201
+    );
+
+    const session =
+      await createResponse.json();
+
+    const claimUrl =
+      new URL(session.claimUrl);
+
+    const secret =
+      claimUrl.searchParams.get("secret");
+
+    assert.ok(secret);
+
+    const claimResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/claim`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            secret,
+          }),
+        }
+      );
+
+    assert.equal(
+      claimResponse.status,
+      200
+    );
+
+    const claim =
+      await claimResponse.json();
+
+    assert.equal(
+      typeof claim.helperToken,
+      "string"
+    );
+
+    assert.ok(
+      claim.helperToken.length > 0
+    );
+
+    const finishResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/finish?token=${encodeURIComponent(
+          claim.helperToken
+        )}`,
+        {
+          method: "POST",
+        }
+      );
+
+    assert.equal(
+      finishResponse.status,
+      200
+    );
+
+    const finishBody =
+      await finishResponse.json();
+
+    assert.equal(
+      finishBody.ok,
+      true
+    );
+
+    const photoResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/photos?token=${encodeURIComponent(
+          claim.helperToken
+        )}`,
+        {
+          method: "POST",
+        }
+      );
+
+    assert.equal(
+      photoResponse.status,
+      410
+    );
+
+    const photoBody =
+      await photoResponse.json();
+
+    assert.equal(
+      photoBody.error,
+      "session_ended"
+    );
+  });
+
+it("rejects finishing with an invalid helper token", async () => {
+  const createResponse = await fetch(
+  `${BASE_URL}/api/sessions`,
+  {
+    method: "POST",
+  }
+);
+
+assert.equal(
+  createResponse.status,
+  201
+);
+
+const session =
+  await createResponse.json();
+
+assert.equal(
+  typeof session.sessionId,
+  "string"
+);
+
+const finishResponse =
+  await fetch(
+    `${BASE_URL}/api/sessions/${session.sessionId}/finish?token=invalid-token`,
+    {
+      method: "POST",
+    }
+  );
+
+assert.equal(
+  finishResponse.status,
+  403
+);
+
+const finishBody =
+  await finishResponse.json();
+
+assert.equal(
+  finishBody.error,
+  "invalid_token"
+);
+});
+
 });
