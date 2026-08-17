@@ -1599,7 +1599,7 @@ describe("Photo API security", () => {
     }
 
   });
-  
+
   it("rejects an expired photo upload", async () => {
     const createResponse = await fetch(
       `${BASE_URL}/api/sessions`,
@@ -1685,57 +1685,57 @@ describe("Photo API security", () => {
     );
 
     await prisma.photo.update({
-  where: {
-    id: photo.photoId
-  },
-  data: {
-    uploadExpiresAt:
-      new Date(Date.now() - 1000)
-  }
-});
-
-const image =
-  await readFile("test.jpg");
-
-const uploadResponse =
-  await fetch(
-    photo.uploadUrl,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "image/jpeg",
+      where: {
+        id: photo.photoId
       },
-      body: image,
-    }
-  );
+      data: {
+        uploadExpiresAt:
+          new Date(Date.now() - 1000)
+      }
+    });
 
-assert.equal(
-  uploadResponse.status,
-  200
-);
+    const image =
+      await readFile("test.jpg");
 
-const completeResponse =
-  await fetch(
-    `${BASE_URL}/api/sessions/${session.sessionId}/photos/${photo.photoId}/complete?token=${encodeURIComponent(
-      claim.helperToken
-    )}`,
-    {
-      method: "POST",
-    }
-  );
+    const uploadResponse =
+      await fetch(
+        photo.uploadUrl,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "image/jpeg",
+          },
+          body: image,
+        }
+      );
 
-assert.equal(
-  completeResponse.status,
-  400
-);
+    assert.equal(
+      uploadResponse.status,
+      200
+    );
 
-const completeBody =
-  await completeResponse.json();
+    const completeResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/photos/${photo.photoId}/complete?token=${encodeURIComponent(
+          claim.helperToken
+        )}`,
+        {
+          method: "POST",
+        }
+      );
 
-assert.equal(
-  completeBody.error,
-  "upload_expired"
-);
+    assert.equal(
+      completeResponse.status,
+      400
+    );
+
+    const completeBody =
+      await completeResponse.json();
+
+    assert.equal(
+      completeBody.error,
+      "upload_expired"
+    );
   });
 
 
