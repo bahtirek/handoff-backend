@@ -22,42 +22,30 @@ const router = Router();
 router.post(
   "/:id/photos",
   async (req, res, next) => {
-
     try {
-
       const token =
         req.query.token;
-
       if (
         typeof token !== "string"
       ) {
-
         return res
           .status(403)
           .json({
             error: "invalid_token"
           });
-
       }
-
-
       const result =
         await createPhotoUpload(
           req.params.id,
           token
         );
-
-
       return res
         .status(200)
         .json(result);
-
     } catch (error) {
-
       if (
         error instanceof PhotoError
       ) {
-
         switch (error.code) {
 
           case "invalid_token":
@@ -96,57 +84,40 @@ router.post(
               });
 
         }
-
       }
-
       next(error);
-
     }
-
   }
 );
 
 router.post(
   "/:id/photos/:photoId/complete",
   async (req, res, next) => {
-
     try {
-
       const token =
         req.query.token;
-
-
       if (
         typeof token !== "string"
       ) {
-
         return res
           .status(403)
           .json({
             error: "invalid_token"
           });
-
       }
-
-
       const result =
         await completePhotoUpload(
           req.params.id,
           req.params.photoId,
           token
         );
-
-
       return res
         .status(200)
         .json(result);
-
     } catch (error) {
-
       if (
         error instanceof PhotoError
       ) {
-
         switch (error.code) {
 
           case "invalid_token":
@@ -184,6 +155,13 @@ router.post(
                 error: "invalid_upload"
               });
 
+          case "upload_expired":
+
+            return res
+              .status(400)
+              .json({
+                error: "upload_expired"
+              });
 
           case "buffer_full":
 
@@ -203,14 +181,9 @@ router.post(
               });
 
         }
-
       }
-
-
       next(error);
-
     }
-
   }
 );
 

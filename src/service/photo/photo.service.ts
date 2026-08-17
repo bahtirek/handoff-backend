@@ -43,9 +43,10 @@ export class PhotoError extends Error {
       | "session_ended"
       | "buffer_full"
       | "photo_limit_reached"
-      |"photo_not_found"
-      |"invalid_upload"
-      |"photo_not_ready"
+      | "photo_not_found"
+      | "invalid_upload"
+      | "photo_not_ready"
+      | "upload_expired"
   ) {
 
     super(code);
@@ -73,16 +74,16 @@ export async function createPhotoUpload(
   }
 
 
-const session =
-  await getActiveSession(
-    sessionId
-  );
+  const session =
+    await getActiveSession(
+      sessionId
+    );
 
-if (!session) {
-  throw new PhotoError(
-    "session_ended"
-  );
-}
+  if (!session) {
+    throw new PhotoError(
+      "session_ended"
+    );
+  }
 
 
   const reservation =
@@ -243,6 +244,32 @@ export async function completePhotoUpload(
 
   }
 
+  if (
+    photo.uploadExpiresAt &&
+    photo.uploadExpiresAt <= new Date()
+  ) {
+    await deletePhotoObject(
+      photo.storageKey
+    ).catch(() => undefined);
+
+    await prisma.photo.update({
+      where: {
+        id: photo.id
+      },
+      data: {
+        status: "DELETED",
+        deletedAt: new Date()
+      }
+    });
+
+    await releaseUpload(
+      sessionId
+    );
+
+    throw new PhotoError(
+      "upload_expired"
+    );
+  }
 
   let buffer: Buffer;
 
