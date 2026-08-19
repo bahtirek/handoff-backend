@@ -1,6 +1,7 @@
 import { cleanupExpiredUploads } from "../service/photo/photo-cleanup.service";
+import { cleanupExpiredSessions } from "../service/session/session-cleanup.service";
 
-const CLEANUP_INTERVAL_MS = 10 * 1000; // 1 minute
+const CLEANUP_INTERVAL_MS = 60 * 1000;
 
 let running = false;
 
@@ -13,11 +14,23 @@ export function startPhotoCleanupJob() {
     running = true;
 
     try {
-      const result = await cleanupExpiredUploads();
+      const [
+        uploadResult,
+        sessionResult
+      ] = await Promise.all([
+        cleanupExpiredUploads(),
+        cleanupExpiredSessions()
+      ]);
 
-      if (result.cleaned > 0) {
+      if (uploadResult.cleaned > 0) {
         console.log(
-          `[photo-cleanup] found=${result.found} cleaned=${result.cleaned}`
+          `[photo-cleanup] found=${uploadResult.found} cleaned=${uploadResult.cleaned}`
+        );
+      }
+
+      if (sessionResult.cleaned > 0) {
+        console.log(
+          `[session-cleanup] found=${sessionResult.found} cleaned=${sessionResult.cleaned}`
         );
       }
     } catch (error) {
@@ -30,9 +43,17 @@ export function startPhotoCleanupJob() {
     }
   };
 
-  // Run once shortly after startup.
-  setTimeout(run, 5000);
+  const timeout =
+    setTimeout(run, 5000);
 
-  // Then every minute.
-  setInterval(run, CLEANUP_INTERVAL_MS);
+  const interval =
+    setInterval(
+      run,
+      CLEANUP_INTERVAL_MS
+    );
+
+  return () => {
+    clearTimeout(timeout);
+    clearInterval(interval);
+  };
 }

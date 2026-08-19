@@ -1,7 +1,11 @@
-import { describe, it } from "node:test";
+import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { prisma } from "../src/db/prisma";
+import { redis } from "../src/db/redis";
+import {
+  cleanupExpiredSessions
+} from "../src/service/session/session-cleanup.service";
 
 
 const BASE_URL =
@@ -1804,99 +1808,161 @@ describe("Photo API security", () => {
     );
   });
 
-it("rejects access to an expired active session", async () => {
-  const createResponse = await fetch(
-  `${BASE_URL}/api/sessions`,
-  {
-    method: "POST",
-  }
-);
+  it("rejects access to an expired active session", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
 
-assert.equal(
-  createResponse.status,
-  201
-);
+    assert.equal(
+      createResponse.status,
+      201
+    );
 
-const session =
-  await createResponse.json();
+    const session =
+      await createResponse.json();
 
-const claimUrl =
-  new URL(session.claimUrl);
+    const claimUrl =
+      new URL(session.claimUrl);
 
-const secret =
-  claimUrl.searchParams.get("secret");
+    const secret =
+      claimUrl.searchParams.get("secret");
 
-assert.ok(secret);
+    assert.ok(secret);
 
-const claimResponse =
-  await fetch(
-    `${BASE_URL}/api/sessions/${session.sessionId}/claim`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type":
-          "application/json",
+    const claimResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/claim`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            secret
+          })
+        }
+      );
+
+    assert.equal(
+      claimResponse.status,
+      200
+    );
+
+    const claim =
+      await claimResponse.json();
+
+    assert.equal(
+      typeof claim.helperToken,
+      "string"
+    );
+    await prisma.session.update({
+      where: {
+        id: session.sessionId
       },
-      body: JSON.stringify({
-        secret
-      })
-    }
-  );
+      data: {
+        deliveryExpiresAt:
+          new Date(Date.now() - 1000)
+      }
+    });
+    await prisma.session.update({
+      where: {
+        id: session.sessionId
+      },
+      data: {
+        deliveryExpiresAt:
+          new Date(Date.now() - 1000)
+      }
+    });
+    const photoResponse =
+      await fetch(
+        `${BASE_URL}/api/sessions/${session.sessionId}/photos?token=${encodeURIComponent(
+          claim.helperToken
+        )}`,
+        {
+          method: "POST",
+        }
+      );
 
-assert.equal(
-  claimResponse.status,
-  200
-);
+    assert.equal(
+      photoResponse.status,
+      410
+    );
 
-const claim =
-  await claimResponse.json();
+    const photoBody =
+      await photoResponse.json();
 
-assert.equal(
-  typeof claim.helperToken,
-  "string"
-);
-await prisma.session.update({
-  where: {
-    id: session.sessionId
-  },
-  data: {
-    deliveryExpiresAt:
-      new Date(Date.now() - 1000)
-  }
-});
-await prisma.session.update({
-  where: {
-    id: session.sessionId
-  },
-  data: {
-    deliveryExpiresAt:
-      new Date(Date.now() - 1000)
-  }
-});
-const photoResponse =
-  await fetch(
-    `${BASE_URL}/api/sessions/${session.sessionId}/photos?token=${encodeURIComponent(
-      claim.helperToken
-    )}`,
-    {
-      method: "POST",
-    }
-  );
+    assert.equal(
+      photoBody.error,
+      "session_ended"
+    );
 
-assert.equal(
-  photoResponse.status,
-  410
-);
+  });
 
-const photoBody =
-  await photoResponse.json();
-
-assert.equal(
-  photoBody.error,
-  "session_ended"
-);
 
 });
 
-  
+describe("Session cleanup", () => {
+  it("closes expired active sessions", async () => {
+    const sessionId = `cleanup-test-${Date.now()}`;
+
+    await prisma.session.create({
+      data: {
+        id: sessionId,
+        pairingSecretHash: null,
+        status: "ACTIVE",
+        pairingExpiresAt:
+          new Date(Date.now() - 60_000),
+        claimedAt:
+          new Date(Date.now() - 60_000),
+        deliveryExpiresAt:
+          new Date(Date.now() - 1_000)
+      }
+    });
+
+    const result =
+      await cleanupExpiredSessions();
+
+    assert.ok(
+      result.cleaned >= 1
+    );
+
+    const session =
+      await prisma.session.findUnique({
+        where: {
+          id: sessionId
+        }
+      });
+
+    assert.ok(session);
+
+    assert.equal(
+      session.status,
+      "CLOSED"
+    );
+
+    assert.equal(
+      session.closedReason,
+      "EXPIRED"
+    );
+
+    assert.ok(
+      session.closedAt
+    );
+
+    await prisma.session.delete({
+      where: {
+        id: sessionId
+      }
+    });
+  });
+});
+
+
+after(async () => {
+  await prisma.$disconnect();
+  await redis.quit();
 });
