@@ -3,6 +3,7 @@ import helmet from "helmet";
 import cors from "cors";
 import pinoHttp from "pino-http";
 
+import { env } from "./config/env";
 import { logger } from "./config/logger";
 import { errorHandler } from "./middleware/error-handler";
 
@@ -27,7 +28,8 @@ app.use(
 
 app.use(
   pinoHttp({
-    logger
+    logger,
+    enabled: env.NODE_ENV !== "test",
   })
 );
 
