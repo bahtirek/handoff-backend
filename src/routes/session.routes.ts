@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { prisma } from "../db/prisma";
 
 import {
   claimSession,
@@ -6,6 +7,10 @@ import {
   finishSession,
   revokeHelper,
 } from "../service/session/session.service";
+
+import {
+  authenticateTraveler
+} from "../service/session/traveler-auth.service";
 
 const router = Router();
 
@@ -70,5 +75,77 @@ router.post("/:id/revoke", async (req, res, next) => {
     next(error);
   }
 });
+
+router.post("/:id/push-devices", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { platform, token } = req.body;
+
+    const authHeader =
+      req.headers.authorization;
+
+    if (
+      !authHeader ||
+      !authHeader.startsWith("Bearer ")
+    ) {
+      return res.status(403).json({
+        error: "invalid_token",
+      });
+    }
+
+    const travelerToken =
+      authHeader.substring(7);
+
+    const session =
+      await authenticateTraveler(
+        id,
+        travelerToken
+      );
+
+    if (!session) {
+      return res.status(403).json({
+        error: "invalid_token",
+      });
+    }
+
+    if (
+      (platform !== "IOS" &&
+        platform !== "ANDROID") ||
+      typeof token !== "string" ||
+      token.length === 0
+    ) {
+      return res.status(400).json({
+        error: "invalid_push_device",
+      });
+    }
+
+    const device =
+      await prisma.pushDevice.upsert({
+        where: {
+          platform_token: {
+            platform,
+            token,
+          },
+        },
+        update: {
+          sessionId: id,
+          updatedAt: new Date(),
+        },
+        create: {
+          sessionId: id,
+          platform,
+          token,
+        },
+      });
+
+    return res.status(201).json({
+      id: device.id,
+      platform: device.platform,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 
 export default router;
