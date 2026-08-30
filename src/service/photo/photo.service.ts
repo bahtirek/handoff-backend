@@ -587,91 +587,137 @@ const download =
 
 }
 
-
 export async function markPhotoDownloaded(
   sessionId: string,
   photoId: string
 ) {
-
   const photo =
     await prisma.photo.findFirst({
-
       where: {
-
         id: photoId,
-
         sessionId
-
       }
-
     });
 
-
   if (!photo) {
-
     throw new PhotoError(
       "photo_not_found"
     );
-
   }
 
+  /*
+   * Idempotent:
+   * The requester may retry the acknowledgement.
+   */
+  if (
+    photo.status === "DOWNLOADED" ||
+    photo.status === "DELETED"
+  ) {
+    return {
+      ok: true
+    };
+  }
 
   if (
     photo.status !== "READY"
   ) {
-
     throw new PhotoError(
       "photo_not_ready"
     );
-
   }
-
 
   const now =
     new Date();
 
-
+  /*
+   * First record that the requester successfully
+   * received the photo.
+   */
   await prisma.$transaction([
 
     prisma.photo.update({
-
       where: {
         id: photoId
       },
 
       data: {
-
-        status:
-          "DOWNLOADED",
-
-        downloadedAt:
-          now
-
+        status: "DOWNLOADED",
+        downloadedAt: now
       }
-
     }),
 
     prisma.session.update({
-
       where: {
         id: sessionId
       },
 
       data: {
-
         downloadedCount: {
           increment: 1
         }
-
       }
-
     })
 
   ]);
 
+  console.log(
+    "PHOTO: download acknowledged",
+    {
+      sessionId,
+      photoId,
+      storageKey: photo.storageKey
+    }
+  );
+
+  /*
+   * Now remove the physical object from R2.
+   */
+  try {
+
+    await deletePhotoObject(
+      photo.storageKey
+    );
+
+    await prisma.photo.update({
+      where: {
+        id: photoId
+      },
+
+      data: {
+        status: "DELETED",
+        deletedAt: new Date()
+      }
+    });
+
+    console.log(
+      "PHOTO: R2 object deleted",
+      {
+        sessionId,
+        photoId
+      }
+    );
+
+  } catch (error) {
+
+    /*
+     * Do not undo DOWNLOADED.
+     *
+     * The requester already has the photo.
+     * Cleanup will retry R2 deletion later.
+     */
+    console.error(
+      "PHOTO: R2 deletion failed; cleanup will retry",
+      {
+        sessionId,
+        photoId,
+        storageKey: photo.storageKey,
+        error
+      }
+    );
+
+  }
 
   return {
     ok: true
   };
-
 }
