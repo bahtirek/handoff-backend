@@ -13,11 +13,21 @@ export async function sendSessionNotification(
   notification: PushNotification,
   pushProvider: PushProvider = apnsProvider
 ) {
+  console.log("PUSH: sendSessionNotification called", {
+    sessionId,
+    title: notification.title,
+  });
+
   const devices = await prisma.pushDevice.findMany({
     where: {
       sessionId,
       platform: "IOS",
     },
+  });
+
+  console.log("PUSH: devices found", {
+    sessionId,
+    count: devices.length,
   });
 
   if (devices.length === 0) {
@@ -32,12 +42,22 @@ export async function sendSessionNotification(
 
   for (const device of devices) {
     try {
+      console.log("PUSH: calling provider.send", {
+        deviceId: device.id,
+        platform: device.platform,
+      });
+
       const result = await pushProvider.send(
         device.token,
         notification.title,
         notification.body,
         notification.data ?? {}
       );
+
+      console.log("PUSH: provider.send returned", {
+        deviceId: device.id,
+        result,
+      });
 
       if (result.sent) {
         sent++;
@@ -55,17 +75,18 @@ export async function sendSessionNotification(
     } catch (error) {
       failed++;
 
-      if (process.env.NODE_ENV !== "test") {
-        console.error(
-          "Failed to send push notification",
-          {
-            deviceId: device.id,
-            error,
-          }
-        );
-      }
+      console.error("Failed to send push notification", {
+        deviceId: device.id,
+        error,
+      });
     }
   }
+
+  console.log("PUSH: notification complete", {
+    sessionId,
+    sent,
+    failed,
+  });
 
   return {
     sent,

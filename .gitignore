@@ -7,3 +7,4 @@ node_modules
 test.jpg
 
 /dist
+AuthKey_*.p8

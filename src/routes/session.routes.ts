@@ -12,6 +12,10 @@ import {
   authenticateTraveler
 } from "../service/session/traveler-auth.service";
 
+import {
+  addSessionClient
+} from "../service/events/session-events";
+
 const router = Router();
 
 router.post("/", async (_req, res, next) => {
@@ -147,5 +151,66 @@ router.post("/:id/push-devices", async (req, res, next) => {
   }
 });
 
+router.get("/:id/events", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const token = req.query.token;
 
+    if (typeof token !== "string") {
+      return res.status(403).json({
+        error: "invalid_token"
+      });
+    }
+
+    const session =
+      await authenticateTraveler(id, token);
+
+    if (!session) {
+      return res.status(403).json({
+        error: "invalid_token"
+      });
+    }
+
+    res.status(200);
+
+    res.setHeader(
+      "Content-Type",
+      "text/event-stream"
+    );
+
+    res.setHeader(
+      "Cache-Control",
+      "no-cache, no-transform"
+    );
+
+    res.setHeader(
+      "Connection",
+      "keep-alive"
+    );
+
+    res.setHeader(
+      "X-Accel-Buffering",
+      "no"
+    );
+
+    res.flushHeaders();
+
+    res.write(": connected\n\n");
+
+    addSessionClient(id, res);
+
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded) {
+        res.write(": heartbeat\n\n");
+      }
+    }, 15_000);
+
+    res.on("close", () => {
+      clearInterval(heartbeat);
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
 export default router;

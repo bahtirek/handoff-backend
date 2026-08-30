@@ -2,6 +2,7 @@ import { prisma } from "../../db/prisma";
 
 import {
   createPhotoUploadUrl,
+  createPhotoDownloadUrl,
   deletePhotoObject,
   downloadPhotoForValidation,
   getPhotoMetadata
@@ -45,6 +46,7 @@ import type {
   PhotoStorage
 } from "./photo-storage";
 
+import { sendSessionEvent } from "../events/session-events";
 
 export class PhotoError extends Error {
 
@@ -482,6 +484,29 @@ export async function completePhotoUpload(
 
   });
 
+const download =
+  await createPhotoDownloadUrl(
+    photo.storageKey
+  );
+
+  console.log(
+    "PHOTO: sending SSE photo_received",
+    {
+      sessionId,
+      photoId
+    }
+  );
+
+  sendSessionEvent(
+    sessionId,
+    {
+      name: "photo_received",
+      data: {
+        photoId,
+        url: download.url
+      }
+    }
+  );
 
   await releaseUpload(
     sessionId

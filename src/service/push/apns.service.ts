@@ -31,13 +31,14 @@ export const apnsProvider: PushProvider = {
       throw new Error("APNs is not configured");
     }
 
-    if (!apnsProvider) {
-      throw new Error("APNs is not configured");
-    }
-
     if (!env.APNS_BUNDLE_ID) {
       throw new Error("APNS_BUNDLE_ID is not configured");
     }
+
+    console.log("APNS: send() called", {
+  tokenPrefix: token.substring(0, 12),
+  title,
+});
 
     const notification = new apn.Notification();
 
@@ -53,6 +54,17 @@ export const apnsProvider: PushProvider = {
       notification,
       token
     );
+
+    console.log("APNS: provider result", {
+  sent: result.sent.length,
+  failed: result.failed.length,
+  failedResults: result.failed.map((failure) => ({
+    device: failure.device,
+    status: failure.status,
+    response: failure.response,
+    error: failure.error?.message,
+  })),
+});
 
     if (result.sent.length > 0) {
       return {

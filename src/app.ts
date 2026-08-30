@@ -1,4 +1,5 @@
 import express from "express";
+import path from "path";
 import helmet from "helmet";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -13,6 +14,8 @@ import photoRoutes from "./routes/photo.routes";
 
 
 export const app = express();
+
+app.use(express.static(path.join(process.cwd(), "public")));
 
 app.use(
   helmet()
