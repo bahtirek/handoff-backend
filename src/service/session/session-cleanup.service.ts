@@ -6,20 +6,33 @@ const BATCH_SIZE = 50;
 export async function cleanupExpiredSessions() {
   const now = new Date();
 
-const sessions =
-  await prisma.session.findMany({
+  /*
+   * Find sessions whose lifecycle window has expired:
+   *
+   * PAIRING -> pairingExpiresAt
+   * ACTIVE  -> deliveryExpiresAt
+   */
+  const sessions = await prisma.session.findMany({
     where: {
-      status: "ACTIVE",
-      deliveryExpiresAt: {
-        lt: now
-      }
-    },
-    orderBy: {
-      deliveryExpiresAt: "asc"
+      OR: [
+        {
+          status: "PAIRING",
+          pairingExpiresAt: {
+            lt: now
+          }
+        },
+        {
+          status: "ACTIVE",
+          deliveryExpiresAt: {
+            lt: now
+          }
+        }
+      ]
     },
     take: BATCH_SIZE,
     select: {
-      id: true
+      id: true,
+      status: true
     }
   });
 
@@ -28,14 +41,30 @@ const sessions =
   for (const session of sessions) {
     try {
       /*
-       * Only close the session if it is still ACTIVE
-       * and its delivery window has expired.
+       * Re-check the lifecycle state when updating.
        *
        * This makes cleanup safe if another operation
-       * finishes the session at roughly the same time.
+       * changes the session at roughly the same time.
        */
-      const result =
-        await prisma.session.updateMany({
+      let result;
+
+      if (session.status === "PAIRING") {
+        result = await prisma.session.updateMany({
+          where: {
+            id: session.id,
+            status: "PAIRING",
+            pairingExpiresAt: {
+              lt: now
+            }
+          },
+          data: {
+            status: "CLOSED",
+            closedReason: "EXPIRED",
+            closedAt: now
+          }
+        });
+      } else {
+        result = await prisma.session.updateMany({
           where: {
             id: session.id,
             status: "ACTIVE",
@@ -49,6 +78,7 @@ const sessions =
             closedAt: now
           }
         });
+      }
 
       if (result.count === 1) {
         await redis.del(

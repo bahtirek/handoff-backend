@@ -47,12 +47,7 @@ app.use(
 );
 
 app.use(
-  "/api/sessions",
-  photoRoutes
-);
-
-app.use(
-  "/api/sessions",
+  "/api/photos",
   photoRoutes
 );
 
