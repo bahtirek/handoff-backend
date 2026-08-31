@@ -1,4 +1,4 @@
-import { cleanupExpiredUploads } from "../service/photo/photo-cleanup.service";
+import { cleanupExpiredUploads, cleanupDownloadedPhotos } from "../service/photo/photo-cleanup.service";
 import { cleanupExpiredSessions } from "../service/session/session-cleanup.service";
 
 const CLEANUP_INTERVAL_MS = 60 * 1000;
@@ -16,15 +16,23 @@ export function startPhotoCleanupJob() {
     try {
       const [
         uploadResult,
+        downloadedResult,
         sessionResult
       ] = await Promise.all([
         cleanupExpiredUploads(),
+        cleanupDownloadedPhotos(),
         cleanupExpiredSessions()
       ]);
 
       if (uploadResult.cleaned > 0) {
         console.log(
           `[photo-cleanup] found=${uploadResult.found} cleaned=${uploadResult.cleaned}`
+        );
+      }
+
+      if (downloadedResult.cleaned > 0) {
+        console.log(
+          `[photo-download-cleanup] found=${downloadedResult.found} cleaned=${downloadedResult.cleaned}`
         );
       }
 

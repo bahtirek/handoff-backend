@@ -1,11 +1,17 @@
 import { prisma } from "../../db/prisma";
 
 import {
-  createPhotoUploadUrl
+  createPhotoUploadUrl,
+  createPhotoDownloadUrl,
+  deletePhotoObject,
+  downloadPhotoForValidation,
+  getPhotoMetadata
 } from "../storage/storage.service";
 
 import {
-  reserveUpload
+  reserveUpload,
+  releaseUpload,
+  rollbackUploadReservation
 } from "../upload/upload-limit.service";
 
 import {
@@ -17,23 +23,30 @@ import {
 } from "../session/helper-auth.service";
 
 import {
-  deletePhotoObject,
-  downloadPhotoForValidation,
-  getPhotoMetadata
-} from "../storage/storage.service";
-
-import {
-  releaseUpload,
-  rollbackUploadReservation
-} from "../upload/upload-limit.service";
-
-import {
   validatePhoto
 } from "./photo-validation.service";
 
 import {
   getActiveSession
 } from "../session/session-state.service";
+
+import {
+  sendSessionNotification
+} from "../push/push.service";
+
+import {
+  apnsProvider
+} from "../push/apns.service";
+
+import type {
+  PushProvider
+} from "../push/push-provider";
+
+import type {
+  PhotoStorage
+} from "./photo-storage";
+
+import { sendSessionEvent } from "../events/session-events";
 
 export class PhotoError extends Error {
 
@@ -68,9 +81,11 @@ export async function createPhotoUpload(
     );
 
   if (!claim) {
+
     throw new PhotoError(
       "invalid_token"
     );
+
   }
 
 
@@ -80,9 +95,11 @@ export async function createPhotoUpload(
     );
 
   if (!session) {
+
     throw new PhotoError(
       "session_ended"
     );
+
   }
 
 
@@ -92,9 +109,7 @@ export async function createPhotoUpload(
     );
 
 
-  if (
-    !reservation.allowed
-  ) {
+  if (!reservation.allowed) {
 
     throw new PhotoError(
       reservation.reason ?? "buffer_full"
@@ -143,16 +158,23 @@ export async function createPhotoUpload(
         storageKey
       );
 
+
     await prisma.photo.update({
+
       where: {
         id: photoId
       },
+
       data: {
-        uploadExpiresAt: upload.expiresAt
+        uploadExpiresAt:
+          upload.expiresAt
       }
+
     });
 
+
     return {
+
       photoId,
 
       uploadUrl:
@@ -160,6 +182,7 @@ export async function createPhotoUpload(
 
       uploadExpiresAt:
         upload.expiresAt.toISOString()
+
     };
 
   } catch (error) {
@@ -174,10 +197,28 @@ export async function createPhotoUpload(
 
 }
 
+
 export async function completePhotoUpload(
   sessionId: string,
   photoId: string,
-  token: string
+  token: string,
+
+  pushProvider: PushProvider =
+    apnsProvider,
+
+  photoStorage: PhotoStorage = {
+
+    getMetadata:
+      getPhotoMetadata,
+
+    download:
+      downloadPhotoForValidation,
+
+    delete:
+      deletePhotoObject
+
+  }
+
 ) {
 
   const claim =
@@ -198,9 +239,11 @@ export async function completePhotoUpload(
 
   const session =
     await prisma.session.findUnique({
+
       where: {
         id: sessionId
       }
+
     });
 
 
@@ -218,10 +261,15 @@ export async function completePhotoUpload(
 
   const photo =
     await prisma.photo.findFirst({
+
       where: {
+
         id: photoId,
+
         sessionId
+
       }
+
     });
 
 
@@ -244,42 +292,56 @@ export async function completePhotoUpload(
 
   }
 
+
   if (
     photo.uploadExpiresAt &&
     photo.uploadExpiresAt <= new Date()
   ) {
-    await deletePhotoObject(
+
+    await photoStorage.delete(
       photo.storageKey
     ).catch(() => undefined);
 
+
     await prisma.photo.update({
+
       where: {
         id: photo.id
       },
+
       data: {
+
         status: "DELETED",
-        deletedAt: new Date()
+
+        deletedAt:
+          new Date()
+
       }
+
     });
+
 
     await releaseUpload(
       sessionId
     );
 
+
     throw new PhotoError(
       "upload_expired"
     );
+
   }
 
+
   let buffer: Buffer;
+
 
   try {
 
     const metadata =
-      await getPhotoMetadata(
+      await photoStorage.getMetadata(
         photo.storageKey
       );
-
 
     if (
       !metadata.ContentLength ||
@@ -293,29 +355,39 @@ export async function completePhotoUpload(
 
     }
 
-
     buffer =
-      await downloadPhotoForValidation(
+      await photoStorage.download(
         photo.storageKey
       );
 
-
   } catch (error) {
 
-    await deletePhotoObject(
+    console.log(
+      "PHOTO: storage validation failed",
+      error
+    );
+
+
+    await photoStorage.delete(
       photo.storageKey
     ).catch(() => undefined);
 
 
     await prisma.photo.update({
+
       where: {
         id: photo.id
       },
 
       data: {
+
         status: "DELETED",
-        deletedAt: new Date()
+
+        deletedAt:
+          new Date()
+
       }
+
     });
 
 
@@ -333,6 +405,7 @@ export async function completePhotoUpload(
 
   let validated;
 
+
   try {
 
     validated =
@@ -342,20 +415,32 @@ export async function completePhotoUpload(
 
   } catch (error) {
 
-    await deletePhotoObject(
+    console.log(
+      "PHOTO: photo validation failed",
+      error
+    );
+
+
+    await photoStorage.delete(
       photo.storageKey
     ).catch(() => undefined);
 
 
     await prisma.photo.update({
+
       where: {
         id: photo.id
       },
 
       data: {
+
         status: "DELETED",
-        deletedAt: new Date()
+
+        deletedAt:
+          new Date()
+
       }
+
     });
 
 
@@ -369,7 +454,6 @@ export async function completePhotoUpload(
     );
 
   }
-
 
   await prisma.photo.update({
 
@@ -400,11 +484,33 @@ export async function completePhotoUpload(
 
   });
 
+const download =
+  await createPhotoDownloadUrl(
+    photo.storageKey
+  );
+
+  console.log(
+    "PHOTO: sending SSE photo_received",
+    {
+      sessionId,
+      photoId
+    }
+  );
+
+  sendSessionEvent(
+    sessionId,
+    {
+      name: "photo_received",
+      data: {
+        photoId,
+        url: download.url
+      }
+    }
+  );
 
   await releaseUpload(
     sessionId
   );
-
 
   await prisma.session.update({
 
@@ -413,12 +519,66 @@ export async function completePhotoUpload(
     },
 
     data: {
+
       photoCount: {
         increment: 1
       }
+
     }
 
   });
+
+
+  try {
+
+    await sendSessionNotification(
+
+      sessionId,
+
+      {
+
+        title:
+          "Photo ready",
+
+        body:
+          "Your photo is ready to view.",
+
+        data: {
+
+          type:
+            "photo_ready",
+
+          sessionId,
+
+          photoId
+
+        }
+
+      },
+
+      pushProvider
+
+    );
+
+  } catch (error) {
+
+    console.error(
+
+      "Failed to send photo-ready notification",
+
+      {
+
+        sessionId,
+
+        photoId,
+
+        error
+
+      }
+
+    );
+
+  }
 
 
   return {
@@ -445,19 +605,41 @@ export async function markPhotoDownloaded(
     );
   }
 
-  if (photo.status !== "READY") {
+  /*
+   * Idempotent:
+   * The requester may retry the acknowledgement.
+   */
+  if (
+    photo.status === "DOWNLOADED" ||
+    photo.status === "DELETED"
+  ) {
+    return {
+      ok: true
+    };
+  }
+
+  if (
+    photo.status !== "READY"
+  ) {
     throw new PhotoError(
       "photo_not_ready"
     );
   }
 
-  const now = new Date();
+  const now =
+    new Date();
 
+  /*
+   * First record that the requester successfully
+   * received the photo.
+   */
   await prisma.$transaction([
+
     prisma.photo.update({
       where: {
         id: photoId
       },
+
       data: {
         status: "DOWNLOADED",
         downloadedAt: now
@@ -468,13 +650,72 @@ export async function markPhotoDownloaded(
       where: {
         id: sessionId
       },
+
       data: {
         downloadedCount: {
           increment: 1
         }
       }
     })
+
   ]);
+
+  console.log(
+    "PHOTO: download acknowledged",
+    {
+      sessionId,
+      photoId,
+      storageKey: photo.storageKey
+    }
+  );
+
+  /*
+   * Now remove the physical object from R2.
+   */
+  try {
+
+    await deletePhotoObject(
+      photo.storageKey
+    );
+
+    await prisma.photo.update({
+      where: {
+        id: photoId
+      },
+
+      data: {
+        status: "DELETED",
+        deletedAt: new Date()
+      }
+    });
+
+    console.log(
+      "PHOTO: R2 object deleted",
+      {
+        sessionId,
+        photoId
+      }
+    );
+
+  } catch (error) {
+
+    /*
+     * Do not undo DOWNLOADED.
+     *
+     * The requester already has the photo.
+     * Cleanup will retry R2 deletion later.
+     */
+    console.error(
+      "PHOTO: R2 deletion failed; cleanup will retry",
+      {
+        sessionId,
+        photoId,
+        storageKey: photo.storageKey,
+        error
+      }
+    );
+
+  }
 
   return {
     ok: true

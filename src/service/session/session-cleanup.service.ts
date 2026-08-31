@@ -6,19 +6,22 @@ const BATCH_SIZE = 50;
 export async function cleanupExpiredSessions() {
   const now = new Date();
 
-  const sessions =
-    await prisma.session.findMany({
-      where: {
-        status: "ACTIVE",
-        deliveryExpiresAt: {
-          lt: now
-        }
-      },
-      take: BATCH_SIZE,
-      select: {
-        id: true
+const sessions =
+  await prisma.session.findMany({
+    where: {
+      status: "ACTIVE",
+      deliveryExpiresAt: {
+        lt: now
       }
-    });
+    },
+    orderBy: {
+      deliveryExpiresAt: "asc"
+    },
+    take: BATCH_SIZE,
+    select: {
+      id: true
+    }
+  });
 
   let cleaned = 0;
 

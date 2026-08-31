@@ -63,3 +63,16 @@ export function hashHelperToken(token: string): string {
     .update(`helper:${token}`)
     .digest("hex");
 }
+
+export function generateTravelerToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+export function hashTravelerToken(token: string): string {
+  return createHmac(
+    "sha256",
+    env.PAIRING_SECRET_PEPPER
+  )
+    .update(`traveler:${token}`)
+    .digest("hex");
+}

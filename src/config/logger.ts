@@ -1,13 +1,12 @@
 import pino from "pino";
 import { env } from "./env";
 
-
 export const logger = pino({
+  level: env.NODE_ENV === "test"
+    ? "silent"
+    : env.LOG_LEVEL,
 
-    level: env.LOG_LEVEL,
-
-    base: {
-        service: "handoff-api"
-    }
-
+  base: {
+    service: "handoff-api",
+  },
 });

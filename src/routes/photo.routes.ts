@@ -15,6 +15,7 @@ import {
 } from "../service/storage/storage.service";
 import { authenticateHelper } from "../service/session/helper-auth.service";
 import { prisma } from "../db/prisma";
+import { authenticateTraveler } from "../service/session/traveler-auth.service";
 
 const router = Router();
 
@@ -331,6 +332,88 @@ router.post(
 
     }
 
+  }
+);
+
+router.post(
+  "/:id/photos/:photoId/received",
+  async (req, res, next) => {
+    try {
+      const { id, photoId } = req.params;
+
+      const authHeader =
+        req.headers.authorization;
+
+      if (
+        !authHeader ||
+        !authHeader.startsWith("Bearer ")
+      ) {
+        return res
+          .status(403)
+          .json({
+            error: "invalid_token"
+          });
+      }
+
+      const travelerToken =
+        authHeader.substring(7);
+
+      const session =
+        await authenticateTraveler(
+          id,
+          travelerToken
+        );
+
+      if (!session) {
+        return res
+          .status(403)
+          .json({
+            error: "invalid_token"
+          });
+      }
+
+      const result =
+        await markPhotoDownloaded(
+          id,
+          photoId
+        );
+
+      return res
+        .status(200)
+        .json(result);
+
+    } catch (error) {
+
+      if (
+        error instanceof PhotoError
+      ) {
+        switch (error.code) {
+
+          case "photo_not_found":
+            return res
+              .status(404)
+              .json({
+                error: "photo_not_found"
+              });
+
+          case "photo_not_ready":
+            return res
+              .status(409)
+              .json({
+                error: "photo_not_ready"
+              });
+
+          case "invalid_token":
+            return res
+              .status(403)
+              .json({
+                error: "invalid_token"
+              });
+        }
+      }
+
+      next(error);
+    }
   }
 );
 

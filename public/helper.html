@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Handoff Helper Test</title>
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+
+    input, button {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+      margin: 6px 0;
+      font-size: 16px;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    #status {
+      margin-top: 20px;
+      padding: 12px;
+      background: #eee;
+      white-space: pre-wrap;
+    }
+
+    #photoInput {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>Handoff Helper</h1>
+
+<label>
+  Claim URL
+  <input
+    id="claimUrl"
+    placeholder="Paste the QR claim URL here"
+  >
+</label>
+
+<button onclick="claim()">
+  Claim Session
+</button>
+
+<hr>
+
+<div id="session"></div>
+
+<input
+  id="photoInput"
+  type="file"
+  accept="image/*"
+  capture="environment"
+  disabled
+>
+
+<button
+  id="uploadButton"
+  onclick="uploadPhoto()"
+  disabled
+>
+  Upload Photo
+</button>
+
+<div id="status">
+Waiting for claim URL...
+</div>
+
+<script>
+
+let sessionId = null;
+let helperToken = null;
+
+const statusEl =
+  document.getElementById("status");
+
+function status(message) {
+  statusEl.textContent = message;
+}
+
+async function claim() {
+
+  const claimUrl =
+    document.getElementById("claimUrl").value.trim();
+
+  if (!claimUrl) {
+    status("Enter a claim URL.");
+    return;
+  }
+
+  let url;
+
+  try {
+    url = new URL(claimUrl);
+  } catch {
+    status("Invalid claim URL.");
+    return;
+  }
+
+  sessionId =
+    url.searchParams.get("session");
+
+  const secret =
+    url.searchParams.get("secret");
+
+  if (!sessionId || !secret) {
+    status("Claim URL is missing session or secret.");
+    return;
+  }
+
+  status("Claiming session...");
+
+  try {
+
+const response =
+  await fetch(
+    `/api/sessions/${sessionId}/claim`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        secret
+      })
+    }
+  );
+
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+      status(
+        `Claim failed (${response.status}):\n` +
+        JSON.stringify(data, null, 2)
+      );
+      return;
+    }
+
+    helperToken =
+      data.helperToken;
+
+    document.getElementById("session").textContent =
+      `Session: ${sessionId}`;
+
+    document.getElementById("photoInput").disabled =
+      false;
+
+    document.getElementById("uploadButton").disabled =
+      false;
+
+    status("Session claimed successfully.");
+
+  } catch (error) {
+
+    status(
+      "Network error:\n" +
+      error
+    );
+
+  }
+}
+
+async function uploadPhoto() {
+
+  const input =
+    document.getElementById("photoInput");
+
+  const file =
+    input.files[0];
+
+  if (!file) {
+    status("Select or take a photo first.");
+    return;
+  }
+
+  if (!sessionId || !helperToken) {
+    status("Session has not been claimed.");
+    return;
+  }
+
+  try {
+
+    status("Creating photo upload...");
+
+    const createResponse =
+      await fetch(
+        `/api/sessions/${sessionId}/photos?token=${encodeURIComponent(helperToken)}`,
+        {
+          method: "POST"
+        }
+      );
+
+    const createData =
+      await createResponse.json();
+
+    if (!createResponse.ok) {
+      status(
+        `Create upload failed (${createResponse.status}):\n` +
+        JSON.stringify(createData, null, 2)
+      );
+      return;
+    }
+
+    const photoId =
+      createData.photoId;
+
+    const uploadUrl =
+      createData.uploadUrl;
+      console.log("UPLOAD URL:", uploadUrl);
+
+    status(
+      `Uploading photo...\nPhoto ID: ${photoId}`
+    );
+
+    const uploadResponse =
+      await fetch(
+        uploadUrl,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": file.type
+          },
+          body: file
+        }
+      );
+
+    if (!uploadResponse.ok) {
+      status(
+        `Storage upload failed (${uploadResponse.status})`
+      );
+      return;
+    }
+
+    status("Upload complete. Finalizing...");
+
+    const completeResponse =
+      await fetch(
+        `/api/sessions/${sessionId}/photos/${photoId}/complete?token=${encodeURIComponent(helperToken)}`,
+        {
+          method: "POST"
+        }
+      );
+
+    const completeData =
+      await completeResponse.json();
+
+    if (!completeResponse.ok) {
+      status(
+        `Complete upload failed (${completeResponse.status}):\n` +
+        JSON.stringify(completeData, null, 2)
+      );
+      return;
+    }
+
+    status(
+      "PHOTO UPLOAD COMPLETE.\n\n" +
+      JSON.stringify(completeData, null, 2) +
+      "\n\nThe backend should now send the APNs notification."
+    );
+
+    input.value = "";
+
+  } catch (error) {
+
+    status(
+      "Upload error:\n" +
+      error
+    );
+
+  }
+}
+
+</script>
+
+</body>
+</html>

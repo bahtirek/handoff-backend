@@ -7,7 +7,9 @@ import {
   generatePairingSecret,
   hashPairingSecret,
   generateHelperToken,
-  hashHelperToken
+  hashHelperToken,
+  generateTravelerToken,
+  hashTravelerToken
 } from "../../utils/crypto";
 
 import {
@@ -23,6 +25,10 @@ export async function createSession() {
   const sessionId = generateRandomId(16);
   const pairingSecret = generatePairingSecret();
   const pairingSecretHash = hashPairingSecret(pairingSecret);
+  
+  const travelerToken = generateTravelerToken();
+  const travelerTokenHash = hashTravelerToken(travelerToken);
+
   const pairingExpiresAt = new Date(
     Date.now() +
     PAIRING_WINDOW_SECONDS * 1000
@@ -32,6 +38,7 @@ export async function createSession() {
     data: {
       id: sessionId,
       pairingSecretHash,
+      travelerTokenHash,
       status: "PAIRING",
       pairingExpiresAt
     }
@@ -74,6 +81,7 @@ export async function createSession() {
 
   return {
     sessionId,
+    travelerToken,
     claimUrl: claimUrlString,
     qrDataUrl,
     pairingExpiresAt: pairingExpiresAt.toISOString()

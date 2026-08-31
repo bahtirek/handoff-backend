@@ -1,8 +1,10 @@
 import express from "express";
+import path from "path";
 import helmet from "helmet";
 import cors from "cors";
 import pinoHttp from "pino-http";
 
+import { env } from "./config/env";
 import { logger } from "./config/logger";
 import { errorHandler } from "./middleware/error-handler";
 
@@ -12,6 +14,8 @@ import photoRoutes from "./routes/photo.routes";
 
 
 export const app = express();
+
+app.use(express.static(path.join(process.cwd(), "public")));
 
 app.use(
   helmet()
@@ -27,7 +31,8 @@ app.use(
 
 app.use(
   pinoHttp({
-    logger
+    logger,
+    enabled: env.NODE_ENV !== "test",
   })
 );
 
@@ -45,4 +50,10 @@ app.use(
   "/api/sessions",
   photoRoutes
 );
+
+app.use(
+  "/api/sessions",
+  photoRoutes
+);
+
 app.use(errorHandler);

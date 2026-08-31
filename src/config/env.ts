@@ -34,7 +34,15 @@ const schema = z.object({
 
   R2_ENDPOINT: z.string().url(),
 
-  DELIVERY_SAFETY_NET_MS: z.coerce.number().min(0).default(172800000)
+  DELIVERY_SAFETY_NET_MS: z.coerce.number().min(0).default(172800000),
+
+  APNS_KEY_ID: z.string().optional(),
+  APNS_TEAM_ID: z.string().optional(),
+  APNS_BUNDLE_ID: z.string().optional(),
+  APNS_PRIVATE_KEY: z.string().optional(),
+
+  APNS_PRODUCTION: z.coerce.boolean().default(false),
+
 });
 
 export const env = schema.parse(process.env);

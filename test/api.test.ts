@@ -1961,6 +1961,124 @@ describe("Session cleanup", () => {
   });
 });
 
+describe("Traveler authentication", () => {
+  it("registers a push device with a valid traveler token", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    assert.equal(createResponse.status, 201);
+
+    const session = await createResponse.json();
+
+    const response = await fetch(
+      `${BASE_URL}/api/sessions/${session.sessionId}/push-devices`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.travelerToken}`,
+        },
+        body: JSON.stringify({
+          platform: "IOS",
+          token: "fake-device-token-valid",
+        }),
+      }
+    );
+
+    assert.equal(response.status, 201);
+
+    const body = await response.json();
+
+    assert.ok(body.id);
+    assert.equal(body.platform, "IOS");
+
+    await prisma.pushDevice.delete({
+      where: {
+        id: body.id,
+      },
+    });
+
+    await prisma.session.delete({
+      where: {
+        id: session.sessionId,
+      },
+    });
+  });
+
+
+  it("rejects push device registration without traveler token", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    const session = await createResponse.json();
+
+    const response = await fetch(
+      `${BASE_URL}/api/sessions/${session.sessionId}/push-devices`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          platform: "IOS",
+          token: "fake-device-token-missing-auth",
+        }),
+      }
+    );
+
+    assert.equal(response.status, 403);
+
+    await prisma.session.delete({
+      where: {
+        id: session.sessionId,
+      },
+    });
+  });
+
+
+  it("rejects push device registration with invalid traveler token", async () => {
+    const createResponse = await fetch(
+      `${BASE_URL}/api/sessions`,
+      {
+        method: "POST",
+      }
+    );
+
+    const session = await createResponse.json();
+
+    const response = await fetch(
+      `${BASE_URL}/api/sessions/${session.sessionId}/push-devices`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer completely-invalid-token",
+        },
+        body: JSON.stringify({
+          platform: "IOS",
+          token: "fake-device-token-invalid-auth",
+        }),
+      }
+    );
+
+    assert.equal(response.status, 403);
+
+    await prisma.session.delete({
+      where: {
+        id: session.sessionId,
+      },
+    });
+  });
+});
+
 
 after(async () => {
   await prisma.$disconnect();

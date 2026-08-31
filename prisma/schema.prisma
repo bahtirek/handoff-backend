@@ -11,6 +11,7 @@ datasource db {
 model Session {
   id                String        @id
   pairingSecretHash String?
+  travelerTokenHash String?
   status            SessionStatus @default(PAIRING)
   pairingExpiresAt  DateTime
   claimedAt         DateTime?
