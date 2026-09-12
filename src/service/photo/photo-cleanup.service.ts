@@ -26,18 +26,8 @@ export async function cleanupExpiredUploads() {
 
   for (const photo of photos) {
     try {
-      /*
-       * Delete the object from R2 first.
-       * It may not exist if the helper never uploaded anything.
-       */
       await deletePhotoObject(photo.storageKey).catch(() => undefined);
 
-      /*
-       * Only transition the photo if it is still UPLOADING.
-       *
-       * This makes the cleanup safe if the helper completed
-       * the upload at roughly the same time.
-       */
       const result = await prisma.photo.updateMany({
         where: {
           id: photo.id,
@@ -53,12 +43,10 @@ export async function cleanupExpiredUploads() {
       });
 
       if (result.count === 1) {
-        await rollbackUploadReservation(
-          photo.sessionId
-        );
-
+        await rollbackUploadReservation(photo.sessionId);
         cleaned++;
       }
+
     } catch (error) {
       console.error(
         "Failed to cleanup expired upload",
@@ -78,27 +66,22 @@ export async function cleanupExpiredUploads() {
 }
 
 export async function cleanupDownloadedPhotos() {
-  const photos =
-    await prisma.photo.findMany({
-      where: {
-        status: "DOWNLOADED"
-      },
-
-      take: BATCH_SIZE,
-
-      select: {
-        id: true,
-        sessionId: true,
-        storageKey: true
-      }
-    });
+  const photos = await prisma.photo.findMany({
+    where: {
+      status: "DOWNLOADED"
+    },
+    take: BATCH_SIZE,
+    select: {
+      id: true,
+      sessionId: true,
+      storageKey: true
+    }
+  });
 
   let cleaned = 0;
 
   for (const photo of photos) {
-
     try {
-
       console.log(
         "PHOTO CLEANUP: retrying R2 deletion",
         {
@@ -107,29 +90,24 @@ export async function cleanupDownloadedPhotos() {
         }
       );
 
-      await deletePhotoObject(
-        photo.storageKey
-      );
+      await deletePhotoObject(photo.storageKey);
 
-      const result =
-        await prisma.photo.updateMany({
-          where: {
-            id: photo.id,
-            status: "DOWNLOADED"
-          },
-
-          data: {
-            status: "DELETED",
-            deletedAt: new Date()
-          }
-        });
+      const result = await prisma.photo.updateMany({
+        where: {
+          id: photo.id,
+          status: "DOWNLOADED"
+        },
+        data: {
+          status: "DELETED",
+          deletedAt: new Date()
+        }
+      });
 
       if (result.count === 1) {
         cleaned++;
       }
 
     } catch (error) {
-
       console.error(
         "PHOTO CLEANUP: failed to delete downloaded photo",
         {
@@ -139,7 +117,92 @@ export async function cleanupDownloadedPhotos() {
           error
         }
       );
+    }
+  }
 
+  return {
+    found: photos.length,
+    cleaned
+  };
+}
+
+/**
+ * Delete READY photos that can no longer be delivered because
+ * their session has expired.
+ *
+ * The photo remains READY if R2 deletion fails so that a
+ * subsequent cleanup run can retry it.
+ */
+
+export async function cleanupExpiredReadyPhotos() {
+  const now = new Date();
+
+  const photos = await prisma.photo.findMany({
+    where: {
+      status: "READY",
+      session: {
+        status: "CLOSED",
+        closedReason: "EXPIRED",
+        deliveryExpiresAt: {
+          lt: now
+        }
+      }
+    },
+    take: BATCH_SIZE,
+    select: {
+      id: true,
+      sessionId: true,
+      storageKey: true
+    }
+  });
+
+  let cleaned = 0;
+
+  for (const photo of photos) {
+    try {
+      console.log(
+        "PHOTO CLEANUP: deleting expired READY photo",
+        {
+          photoId: photo.id,
+          sessionId: photo.sessionId,
+          storageKey: photo.storageKey
+        }
+      );
+
+      /*
+       * Delete the physical object first.
+       *
+       * If R2 deletion fails, leave the photo READY so a
+       * future cleanup run can retry it.
+       */
+      await deletePhotoObject(photo.storageKey);
+
+      const result = await prisma.photo.updateMany({
+        where: {
+          id: photo.id,
+          sessionId: photo.sessionId,
+          status: "READY"
+        },
+        data: {
+          status: "DELETED",
+          deletedAt: new Date()
+        }
+      });
+
+      if (result.count === 1) {
+        cleaned++;
+      }
+
+    } catch (error) {
+      console.error(
+        "PHOTO CLEANUP: failed to delete expired READY photo",
+        {
+          photoId: photo.id,
+          sessionId: photo.sessionId,
+          storageKey: photo.storageKey,
+          error
+        }
+      );
     }
   }
 

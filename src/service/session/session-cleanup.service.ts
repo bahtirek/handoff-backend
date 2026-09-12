@@ -81,10 +81,7 @@ export async function cleanupExpiredSessions() {
       }
 
       if (result.count === 1) {
-        await redis.del(
-          `session:${session.id}`
-        );
-
+        await redis.del(`session:${session.id}`);
         cleaned++;
       }
     } catch (error) {
