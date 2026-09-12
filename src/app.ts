@@ -41,19 +41,7 @@ app.use(
   healthRoutes
 );
 
-app.use(
-  "/api/sessions",
-  sessionRoutes
-);
-
-app.use(
-  "/api/sessions",
-  photoRoutes
-);
-
-app.use(
-  "/api/sessions",
-  photoRoutes
-);
+app.use("/api/sessions", sessionRoutes);
+app.use("/api/sessions", photoRoutes);
 
 app.use(errorHandler);

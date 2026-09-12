@@ -70,9 +70,35 @@ router.post("/:id/revoke", async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    const authHeader = req.headers.authorization;
+
+    if (
+      !authHeader ||
+      !authHeader.startsWith("Bearer ")
+    ) {
+      return res.status(403).json({
+        error: "invalid_token"
+      });
+    }
+
+    const travelerToken =
+      authHeader.substring(7);
+
+    const session =
+      await authenticateTraveler(
+        id,
+        travelerToken
+      );
+
+    if (!session) {
+      return res.status(403).json({
+        error: "invalid_token"
+      });
+    }
+
     await revokeHelper(id);
 
-    res.status(200).json({
+    return res.status(200).json({
       ok: true
     });
   } catch (error) {

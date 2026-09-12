@@ -105,7 +105,49 @@ export async function claimSession(
     throw error;
   }
 
-  // Pairing window expired or session is no longer claimable.
+  /*
+   * The pairing link is expired regardless of whether the
+   * cleanup worker has already transitioned the session to
+   * CLOSED.
+   */
+  if (session.pairingExpiresAt <= new Date()) {
+    const now = new Date();
+
+    /*
+     * Finalize the expired pairing session immediately.
+     *
+     * updateMany makes this safe if the cleanup job or
+     * another request changes the session concurrently.
+     */
+    await prisma.session.updateMany({
+      where: {
+        id: sessionId,
+        status: "PAIRING",
+        pairingExpiresAt: {
+          lt: now
+        }
+      },
+      data: {
+        status: "CLOSED",
+        closedReason: "EXPIRED",
+        closedAt: now
+      }
+    });
+
+    await redis.del(
+      `session:${sessionId}`
+    );
+
+    const error = new Error("link_expired");
+    (error as any).statusCode = 410;
+    throw error;
+  }
+
+  /*
+   * The session is within its pairing window, but it is no
+   * longer claimable.
+   */
+
   if (session.status !== "PAIRING") {
     const error = new Error("already_claimed");
     (error as any).statusCode = 409;
@@ -113,6 +155,33 @@ export async function claimSession(
   }
 
   if (session.pairingExpiresAt <= new Date()) {
+    const now = new Date();
+
+    /*
+    * Finalize the expired pairing session immediately.
+    *
+    * updateMany makes this safe if the cleanup job or
+    * another request changes the session concurrently.
+    */
+    await prisma.session.updateMany({
+      where: {
+        id: sessionId,
+        status: "PAIRING",
+        pairingExpiresAt: {
+          lt: now
+        }
+      },
+      data: {
+        status: "CLOSED",
+        closedReason: "EXPIRED",
+        closedAt: now
+      }
+    });
+
+    await redis.del(
+      `session:${sessionId}`
+    );
+
     const error = new Error("link_expired");
     (error as any).statusCode = 410;
     throw error;
