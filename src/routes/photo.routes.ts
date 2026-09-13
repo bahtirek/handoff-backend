@@ -356,6 +356,34 @@ router.post(
 
     } catch (error) {
 
+            if (
+        error instanceof PhotoError
+      ) {
+        switch (error.code) {
+
+          case "photo_not_found":
+            return res
+              .status(404)
+              .json({
+                error: "photo_not_found"
+              });
+
+          case "photo_not_ready":
+            return res
+              .status(409)
+              .json({
+                error: "photo_not_ready"
+              });
+
+          case "invalid_token":
+            return res
+              .status(403)
+              .json({
+                error: "invalid_token"
+              });
+        }
+      }
+      
       next(error);
 
     }
