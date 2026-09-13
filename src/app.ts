@@ -33,6 +33,21 @@ app.use(
   pinoHttp({
     logger,
     enabled: env.NODE_ENV !== "test",
+
+    serializers: {
+      req: (req) => ({
+        id: req.id,
+        method: req.method,
+        url: req.url.split("?")[0],
+        headers: {
+          host: req.headers.host,
+          "user-agent": req.headers["user-agent"],
+          accept: req.headers.accept,
+        },
+        remoteAddress: req.remoteAddress,
+        remotePort: req.remotePort,
+      }),
+    },
   })
 );
 
