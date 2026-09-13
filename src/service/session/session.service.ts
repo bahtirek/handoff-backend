@@ -154,39 +154,6 @@ export async function claimSession(
     throw error;
   }
 
-  if (session.pairingExpiresAt <= new Date()) {
-    const now = new Date();
-
-    /*
-    * Finalize the expired pairing session immediately.
-    *
-    * updateMany makes this safe if the cleanup job or
-    * another request changes the session concurrently.
-    */
-    await prisma.session.updateMany({
-      where: {
-        id: sessionId,
-        status: "PAIRING",
-        pairingExpiresAt: {
-          lt: now
-        }
-      },
-      data: {
-        status: "CLOSED",
-        closedReason: "EXPIRED",
-        closedAt: now
-      }
-    });
-
-    await redis.del(
-      `session:${sessionId}`
-    );
-
-    const error = new Error("link_expired");
-    (error as any).statusCode = 410;
-    throw error;
-  }
-
   // Verify pairing secret.
   const suppliedHash =
     hashPairingSecret(pairingSecret);
