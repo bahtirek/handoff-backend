@@ -16,12 +16,20 @@ import {
 import { authenticateHelper } from "../service/session/helper-auth.service";
 import { prisma } from "../db/prisma";
 import { authenticateTraveler } from "../service/session/traveler-auth.service";
+import { rateLimit } from "../middleware/rate-limit";
+
 
 const router = Router();
 
 
 router.post(
   "/:id/photos",
+  rateLimit({
+    limit: 30,
+    windowSeconds: 60,
+    key: (req) =>
+      `${req.params.id}:${req.query.token}`,
+  }),
   async (req, res, next) => {
     try {
       const token =
@@ -35,11 +43,13 @@ router.post(
             error: "invalid_token"
           });
       }
-      const result =
-        await createPhotoUpload(
-          req.params.id,
-          token
-        );
+      const id = typeof req.params.id === "string"
+        ? req.params.id
+        : req.params.id[0];
+      const result = await createPhotoUpload(
+        id,
+        token
+      );
       return res
         .status(200)
         .json(result);
@@ -93,6 +103,13 @@ router.post(
 
 router.post(
   "/:id/photos/:photoId/complete",
+  rateLimit({
+    limit: 30,
+    windowSeconds: 60,
+    key: (req) =>
+      `${req.params.id}:${req.query.token}`,
+  }),
+
   async (req, res, next) => {
     try {
       const token =
@@ -106,10 +123,21 @@ router.post(
             error: "invalid_token"
           });
       }
+
+      const id =
+        typeof req.params.id === "string"
+          ? req.params.id
+          : req.params.id[0];
+
+      const photoId =
+        typeof req.params.photoId === "string"
+          ? req.params.photoId
+          : req.params.photoId[0];
+
       const result =
         await completePhotoUpload(
-          req.params.id,
-          req.params.photoId,
+          id,
+          photoId,
           token
         );
       return res
