@@ -11,12 +11,20 @@ export function errorHandler(
       ? error.statusCode
       : 500;
 
+  if (statusCode >= 500) {
+    console.error("Unhandled server error:", error);
+
+    return res.status(500).json({
+      error: "internal_error"
+    });
+  }
+
   const message =
     typeof error?.message === "string"
       ? error.message
       : "internal_error";
 
-  res.status(statusCode).json({
+  return res.status(statusCode).json({
     error: message
   });
 }
