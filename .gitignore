@@ -8,3 +8,6 @@ test.jpg
 
 /dist
 AuthKey_*.p8
+
+# macOS
+.DS_Store

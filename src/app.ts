@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import helmet from "helmet";
-import cors from "cors";
 import pinoHttp from "pino-http";
 
 import { env } from "./config/env";
@@ -26,11 +25,7 @@ app.use(
 );
 
 app.use(
-  cors()
-);
-
-app.use(
-  express.json()
+  express.json({ limit: "32kb" })
 );
 
 app.use(

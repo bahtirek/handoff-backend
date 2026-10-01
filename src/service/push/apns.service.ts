@@ -36,9 +36,8 @@ export const apnsProvider: PushProvider = {
     }
 
     console.log("APNS: send() called", {
-  tokenPrefix: token.substring(0, 12),
-  title,
-});
+      title,
+    });
 
     const notification = new apn.Notification();
 
@@ -56,15 +55,14 @@ export const apnsProvider: PushProvider = {
     );
 
     console.log("APNS: provider result", {
-  sent: result.sent.length,
-  failed: result.failed.length,
-  failedResults: result.failed.map((failure) => ({
-    device: failure.device,
-    status: failure.status,
-    response: failure.response,
-    error: failure.error?.message,
-  })),
-});
+      sent: result.sent.length,
+      failed: result.failed.length,
+      failures: result.failed.map((failure) => ({
+        status: failure.status,
+        reason: failure.response?.reason,
+        error: failure.error?.message,
+      })),
+    });
 
     if (result.sent.length > 0) {
       return {

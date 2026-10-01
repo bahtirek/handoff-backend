@@ -1,5 +1,6 @@
 import { prisma } from "../../db/prisma";
 import { redis } from "../../db/redis";
+import { sendSessionEvent } from "../events/session-events";
 
 const BATCH_SIZE = 50;
 
@@ -82,6 +83,17 @@ export async function cleanupExpiredSessions() {
 
       if (result.count === 1) {
         await redis.del(`session:${session.id}`);
+
+        await sendSessionEvent(
+          session.id,
+          {
+            name: "session_ended",
+            data: {
+              reason: "EXPIRED"
+            }
+          }
+        );
+
         cleaned++;
       }
     } catch (error) {

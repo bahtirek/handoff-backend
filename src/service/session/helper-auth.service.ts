@@ -40,3 +40,36 @@ export async function authenticateHelper(
 
   return claim;
 }
+
+
+export async function authenticateHelperForStatus(
+  sessionId: string,
+  token: string
+) {
+
+  if (!token) {
+    return null;
+  }
+
+  const tokenHash =
+    hashHelperToken(token);
+
+  const claim =
+    await prisma.claim.findUnique({
+      where: {
+        sessionId
+      }
+    });
+
+  if (!claim) {
+    return null;
+  }
+
+  if (
+    claim.helperTokenHash !== tokenHash
+  ) {
+    return null;
+  }
+
+  return claim;
+}

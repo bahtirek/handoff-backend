@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { redis } from "../db/redis";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 
 type RateLimitOptions = {
   limit: number;
@@ -65,59 +65,152 @@ export function rateLimit({
   };
 }
 
-const connectionScript = `
-local count = redis.call("INCR", KEYS[1])
 
-if count == 1 then
-  redis.call("EXPIRE", KEYS[1], ARGV[1])
+const acquireConnectionScript = `
+local now = tonumber(redis.call("TIME")[1])
+local leaseSeconds = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+local connectionId = ARGV[3]
+
+-- Remove connections whose lease has expired.
+redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now)
+
+local count = redis.call("ZCARD", KEYS[1])
+
+if count >= limit then
+  return ""
 end
 
-if count > tonumber(ARGV[2]) then
-  redis.call("DECR", KEYS[1])
+local expiresAt = now + leaseSeconds
+
+redis.call(
+  "ZADD",
+  KEYS[1],
+  expiresAt,
+  connectionId
+)
+
+-- Keep the whole set temporary so a crashed process
+-- cannot leave the key around forever.
+redis.call(
+  "EXPIRE",
+  KEYS[1],
+  leaseSeconds * 2
+)
+
+return connectionId
+`;
+
+const renewConnectionScript = `
+local now = tonumber(redis.call("TIME")[1])
+local leaseSeconds = tonumber(ARGV[1])
+local connectionId = ARGV[2]
+
+local expiresAt = redis.call(
+  "ZSCORE",
+  KEYS[1],
+  connectionId
+)
+
+if not expiresAt then
   return 0
 end
+
+if tonumber(expiresAt) <= now then
+  redis.call("ZREM", KEYS[1], connectionId)
+  return 0
+end
+
+local newExpiresAt = now + leaseSeconds
+
+redis.call(
+  "ZADD",
+  KEYS[1],
+  newExpiresAt,
+  connectionId
+)
+
+redis.call(
+  "EXPIRE",
+  KEYS[1],
+  leaseSeconds * 2
+)
 
 return 1
 `;
 
 const releaseConnectionScript = `
-local count = redis.call("DECR", KEYS[1])
+local connectionId = ARGV[1]
 
-if count <= 0 then
+redis.call(
+  "ZREM",
+  KEYS[1],
+  connectionId
+)
+
+if redis.call("ZCARD", KEYS[1]) == 0 then
   redis.call("DEL", KEYS[1])
 end
 
-return count
+return 1
 `;
 
 export async function acquireSseConnection(
   key: string,
   limit: number,
-  ttlSeconds: number
-): Promise<boolean> {
+  leaseSeconds: number
+): Promise<string | null> {
   const redisKey =
-    `sse-connection:${hashRateLimitKey(key)}`;
+    `sse-connections:${hashRateLimitKey(key)}`;
+
+  const connectionId = randomUUID();
 
   const result = await redis.eval(
-    connectionScript,
+    acquireConnectionScript,
     1,
     redisKey,
-    ttlSeconds,
-    limit
+    leaseSeconds,
+    limit,
+    connectionId
+  );
+
+  if (typeof result !== "string" || result.length === 0) {
+    return null;
+  }
+
+  return result;
+}
+
+export async function renewSseConnection(
+  key: string,
+  connectionId: string,
+  leaseSeconds: number
+): Promise<boolean> {
+  const redisKey =
+    `sse-connections:${hashRateLimitKey(key)}`;
+
+  const result = await redis.eval(
+    renewConnectionScript,
+    1,
+    redisKey,
+    leaseSeconds,
+    connectionId
   );
 
   return Number(result) === 1;
 }
 
 export async function releaseSseConnection(
-  key: string
+  key: string,
+  connectionId: string
 ): Promise<void> {
   const redisKey =
-    `sse-connection:${hashRateLimitKey(key)}`;
+    `sse-connections:${hashRateLimitKey(key)}`;
 
   await redis.eval(
     releaseConnectionScript,
     1,
-    redisKey
+    redisKey,
+    connectionId
   );
 }

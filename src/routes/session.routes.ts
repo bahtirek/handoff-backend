@@ -6,6 +6,7 @@ import {
   createSession,
   finishSession,
   revokeHelper,
+  getSessionStatus,
 } from "../service/session/session.service";
 
 import {
@@ -19,12 +20,19 @@ import {
 import {
   rateLimit,
   acquireSseConnection,
+  renewSseConnection,
   releaseSseConnection,
 } from "../middleware/rate-limit";
 
 const router = Router();
 
-router.post("/", async (_req, res, next) => {
+router.post("/",
+    rateLimit({
+    limit: 10,
+    windowSeconds: 5 * 60,
+    key: (req) => req.ip ?? "unknown",
+  }),
+  async (_req, res, next) => {
   try {
     const session = await createSession();
 
@@ -244,10 +252,10 @@ router.get("/:id/events", async (req, res, next) => {
 
     const sseKey = `${id}:${token}`;
 
-    let acquired = false;
+    let connectionId: string | null = null;
 
     try {
-      acquired = await acquireSseConnection(
+      connectionId = await acquireSseConnection(
         sseKey,
         3,
         60
@@ -259,10 +267,10 @@ router.get("/:id/events", async (req, res, next) => {
       );
 
       // Fail open if Redis is unavailable.
-      acquired = true;
+      connectionId = "redis-unavailable";
     }
 
-    if (!acquired) {
+    if (!connectionId) {
       return res.status(429).json({
         error: "sse_connection_limit",
       });
@@ -296,16 +304,51 @@ router.get("/:id/events", async (req, res, next) => {
 
     addSessionClient(id, res);
 
-    const heartbeat = setInterval(() => {
-      if (!res.writableEnded) {
-        res.write(": heartbeat\n\n");
+    const heartbeat = setInterval(async () => {
+      if (res.writableEnded) {
+        return;
+      }
+
+      res.write(": heartbeat\n\n");
+
+      if (connectionId === "redis-unavailable") {
+        return;
+      }
+
+      try {
+        const renewed = await renewSseConnection(
+          sseKey,
+          connectionId,
+          60
+        );
+
+        if (!renewed) {
+          console.error(
+            "SSE connection lease renewal failed",
+            {
+              sessionId: id,
+            }
+          );
+        }
+      } catch (error) {
+        console.error(
+          "SSE connection lease renewal error",
+          error
+        );
       }
     }, 15_000);
 
     res.on("close", () => {
       clearInterval(heartbeat);
 
-      releaseSseConnection(sseKey).catch((error) => {
+      if (connectionId === "redis-unavailable") {
+        return;
+      }
+
+      releaseSseConnection(
+        sseKey,
+        connectionId
+      ).catch((error) => {
         console.error(
           "SSE connection release error",
           error
@@ -317,4 +360,31 @@ router.get("/:id/events", async (req, res, next) => {
     next(error);
   }
 });
+
+router.get("/:id", async (req, res, next) => {
+  try {
+    const id =
+      typeof req.params.id === "string"
+        ? req.params.id
+        : req.params.id[0];
+
+    const token = req.query.token;
+
+    if (typeof token !== "string") {
+      return res.status(403).json({
+        error: "invalid_token"
+      });
+    }
+
+    const result = await getSessionStatus(
+      id,
+      token
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

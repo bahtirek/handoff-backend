@@ -4,6 +4,9 @@ import { logger } from "./config/logger";
 import { prisma } from "./db/prisma";
 import { redis } from "./db/redis";
 import { startPhotoCleanupJob } from "./jobs/photo-cleanup.job";
+import {
+  closeSessionEventSubscriber
+} from "./service/events/session-events";
 
 const HOST = "0.0.0.0";
 
@@ -46,6 +49,7 @@ async function shutdown(
     try {
       await prisma.$disconnect();
       await redis.quit();
+      await closeSessionEventSubscriber();
 
       logger.info(
         "Handoff API shutdown complete"
