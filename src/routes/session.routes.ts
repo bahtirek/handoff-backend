@@ -6,6 +6,7 @@ import {
   createSession,
   finishSession,
   revokeHelper,
+  getSessionStatus,
 } from "../service/session/session.service";
 
 import {
@@ -16,9 +17,22 @@ import {
   addSessionClient
 } from "../service/events/session-events";
 
+import {
+  rateLimit,
+  acquireSseConnection,
+  renewSseConnection,
+  releaseSseConnection,
+} from "../middleware/rate-limit";
+
 const router = Router();
 
-router.post("/", async (_req, res, next) => {
+router.post("/",
+    rateLimit({
+    limit: 10,
+    windowSeconds: 5 * 60,
+    key: (req) => req.ip ?? "unknown",
+  }),
+  async (_req, res, next) => {
   try {
     const session = await createSession();
 
@@ -28,9 +42,16 @@ router.post("/", async (_req, res, next) => {
   }
 });
 
-router.post("/:id/claim", async (req, res, next) => {
+router.post("/:id/claim",
+  rateLimit({
+    limit: 10,
+    windowSeconds: 5 * 60,
+    key: (req) =>
+      `${req.ip}:${req.params.id}`,
+  }), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = typeof req.params.id === "string"
+    ? req.params.id : req.params.id[0];
     const { secret } = req.body;
 
     const result = await claimSession(
@@ -44,9 +65,19 @@ router.post("/:id/claim", async (req, res, next) => {
   }
 });
 
-router.post("/:id/finish", async (req, res, next) => {
+router.post("/:id/finish", 
+    rateLimit({
+    limit: 10,
+    windowSeconds: 60,
+    key: (req) =>
+      `${req.params.id}:${req.query.token}`,
+  }),
+  async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id =
+    typeof req.params.id === "string"
+      ? req.params.id
+      : req.params.id[0];
     const token = req.query.token;
 
     if (typeof token !== "string") {
@@ -66,9 +97,20 @@ router.post("/:id/finish", async (req, res, next) => {
   }
 });
 
-router.post("/:id/revoke", async (req, res, next) => {
+router.post(
+  "/:id/revoke",
+  rateLimit({
+    limit: 10,
+    windowSeconds: 60,
+    key: (req) =>
+      `${req.params.id}:${req.headers.authorization}`,
+  }),
+  async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id =
+      typeof req.params.id === "string"
+        ? req.params.id
+        : req.params.id[0];
 
     const authHeader = req.headers.authorization;
 
@@ -106,9 +148,20 @@ router.post("/:id/revoke", async (req, res, next) => {
   }
 });
 
-router.post("/:id/push-devices", async (req, res, next) => {
+router.post(
+  "/:id/push-devices",
+  rateLimit({
+    limit: 10,
+    windowSeconds: 60,
+    key: (req) =>
+      `${req.params.id}:${req.headers.authorization}`,
+  }),
+  async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id =
+      typeof req.params.id === "string"
+        ? req.params.id
+        : req.params.id[0];
     const { platform, token } = req.body;
 
     const authHeader =
@@ -197,6 +250,32 @@ router.get("/:id/events", async (req, res, next) => {
       });
     }
 
+    const sseKey = `${id}:${token}`;
+
+    let connectionId: string | null = null;
+
+    try {
+      connectionId = await acquireSseConnection(
+        sseKey,
+        3,
+        60
+      );
+    } catch (error) {
+      console.error(
+        "SSE connection limiter Redis error",
+        error
+      );
+
+      // Fail open if Redis is unavailable.
+      connectionId = "redis-unavailable";
+    }
+
+    if (!connectionId) {
+      return res.status(429).json({
+        error: "sse_connection_limit",
+      });
+    }
+
     res.status(200);
 
     res.setHeader(
@@ -225,18 +304,87 @@ router.get("/:id/events", async (req, res, next) => {
 
     addSessionClient(id, res);
 
-    const heartbeat = setInterval(() => {
-      if (!res.writableEnded) {
-        res.write(": heartbeat\n\n");
+    const heartbeat = setInterval(async () => {
+      if (res.writableEnded) {
+        return;
+      }
+
+      res.write(": heartbeat\n\n");
+
+      if (connectionId === "redis-unavailable") {
+        return;
+      }
+
+      try {
+        const renewed = await renewSseConnection(
+          sseKey,
+          connectionId,
+          60
+        );
+
+        if (!renewed) {
+          console.error(
+            "SSE connection lease renewal failed",
+            {
+              sessionId: id,
+            }
+          );
+        }
+      } catch (error) {
+        console.error(
+          "SSE connection lease renewal error",
+          error
+        );
       }
     }, 15_000);
 
     res.on("close", () => {
       clearInterval(heartbeat);
+
+      if (connectionId === "redis-unavailable") {
+        return;
+      }
+
+      releaseSseConnection(
+        sseKey,
+        connectionId
+      ).catch((error) => {
+        console.error(
+          "SSE connection release error",
+          error
+        );
+      });
     });
 
   } catch (error) {
     next(error);
   }
 });
+
+router.get("/:id", async (req, res, next) => {
+  try {
+    const id =
+      typeof req.params.id === "string"
+        ? req.params.id
+        : req.params.id[0];
+
+    const token = req.query.token;
+
+    if (typeof token !== "string") {
+      return res.status(403).json({
+        error: "invalid_token"
+      });
+    }
+
+    const result = await getSessionStatus(
+      id,
+      token
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

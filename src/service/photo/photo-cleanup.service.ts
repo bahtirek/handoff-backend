@@ -142,7 +142,6 @@ export async function cleanupExpiredReadyPhotos() {
       status: "READY",
       session: {
         status: "CLOSED",
-        closedReason: "EXPIRED",
         deliveryExpiresAt: {
           lt: now
         }

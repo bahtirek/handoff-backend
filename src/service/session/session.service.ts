@@ -6,6 +6,7 @@ import {
   generateRandomId,
   generatePairingSecret,
   hashPairingSecret,
+  verifyPairingSecret,
   generateHelperToken,
   hashHelperToken,
   generateTravelerToken,
@@ -15,7 +16,8 @@ import {
 import {
   generateQrDataUrl
 } from "../qr/qr.service";
-import { authenticateHelper } from "./helper-auth.service";
+import { authenticateHelper, authenticateHelperForStatus } from "./helper-auth.service";
+import { sendSessionEvent } from "../events/session-events";
 
 
 const PAIRING_WINDOW_SECONDS = 5 * 60;
@@ -59,12 +61,12 @@ export async function createSession() {
     );
 
   claimUrl.searchParams.set(
-    "session",
+    "s",
     sessionId
   );
 
   claimUrl.searchParams.set(
-    "secret",
+    "t",
     pairingSecret
   );
 
@@ -154,46 +156,16 @@ export async function claimSession(
     throw error;
   }
 
-  if (session.pairingExpiresAt <= new Date()) {
-    const now = new Date();
-
-    /*
-    * Finalize the expired pairing session immediately.
-    *
-    * updateMany makes this safe if the cleanup job or
-    * another request changes the session concurrently.
-    */
-    await prisma.session.updateMany({
-      where: {
-        id: sessionId,
-        status: "PAIRING",
-        pairingExpiresAt: {
-          lt: now
-        }
-      },
-      data: {
-        status: "CLOSED",
-        closedReason: "EXPIRED",
-        closedAt: now
-      }
-    });
-
-    await redis.del(
-      `session:${sessionId}`
-    );
-
-    const error = new Error("link_expired");
-    (error as any).statusCode = 410;
-    throw error;
-  }
-
   // Verify pairing secret.
   const suppliedHash =
     hashPairingSecret(pairingSecret);
 
   if (
     !session.pairingSecretHash ||
-    suppliedHash !== session.pairingSecretHash
+    !verifyPairingSecret(
+      pairingSecret,
+      session.pairingSecretHash
+    )
   ) {
     const error = new Error("invalid_secret");
     (error as any).statusCode = 403;
@@ -224,7 +196,10 @@ export async function claimSession(
           where: {
             id: sessionId,
             status: "PAIRING",
-            pairingSecretHash: suppliedHash
+            pairingSecretHash: suppliedHash,
+            pairingExpiresAt: {
+              gt: now
+            }
           },
           data: {
             status: "ACTIVE",
@@ -335,6 +310,16 @@ export async function finishSession(
     `session:${sessionId}`
   );
 
+  await sendSessionEvent(
+    sessionId,
+    {
+      name: "session_ended",
+      data: {
+        reason: "FINISHED"
+      }
+    }
+  );
+
   return {
     ok: true
   };
@@ -343,28 +328,106 @@ export async function finishSession(
 export async function revokeHelper(
   sessionId: string
 ) {
-  const claim = await prisma.claim.findUnique({
+  const now = new Date();
+
+  const result =
+    await prisma.session.updateMany({
+      where: {
+        id: sessionId,
+        status: {
+          in: ["PAIRING", "ACTIVE"]
+        }
+      },
+      data: {
+        status: "CLOSED",
+        closedReason: "REVOKED",
+        closedAt: now
+      }
+    });
+
+  if (result.count !== 1) {
+    const session = await prisma.session.findUnique({
+      where: {
+        id: sessionId
+      }
+    });
+
+    if (!session) {
+      const error =
+        new Error("session_not_found");
+
+      (error as any).statusCode = 404;
+
+      throw error;
+    }
+
+    return {
+      ok: true
+    };
+  }
+
+  await prisma.claim.updateMany({
     where: {
-      sessionId
+      sessionId,
+      revokedAt: null
+    },
+    data: {
+      revokedAt: now
     }
   });
 
+  await redis.del(
+    `session:${sessionId}`
+  );
+
+  await sendSessionEvent(
+    sessionId,
+    {
+      name: "session_ended",
+      data: {
+        reason: "REVOKED"
+      }
+    }
+  );
+
+  return {
+    ok: true
+  };
+}
+
+export async function getSessionStatus(
+  sessionId: string,
+  token: string
+) {
+  const claim = await authenticateHelperForStatus(
+    sessionId,
+    token
+  );
+
   if (!claim) {
-    const error = new Error("claim_not_found");
+    const error = new Error("invalid_token");
+    (error as any).statusCode = 403;
+    throw error;
+  }
+
+  const session = await prisma.session.findUnique({
+    where: {
+      id: sessionId
+    },
+    select: {
+      status: true,
+      closedReason: true
+    }
+  });
+
+  if (!session) {
+    const error = new Error("session_not_found");
     (error as any).statusCode = 404;
     throw error;
   }
 
-  if (claim.revokedAt) {
-    return;
-  }
-
-  await prisma.claim.update({
-    where: {
-      sessionId
-    },
-    data: {
-      revokedAt: new Date()
-    }
-  });
+  return {
+    status: session.status,
+    closedReason: session.closedReason
+  };
 }

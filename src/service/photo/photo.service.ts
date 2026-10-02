@@ -497,7 +497,7 @@ const download =
     }
   );
 
-  sendSessionEvent(
+  await sendSessionEvent(
     sessionId,
     {
       name: "photo_received",
@@ -664,8 +664,7 @@ export async function markPhotoDownloaded(
     "PHOTO: download acknowledged",
     {
       sessionId,
-      photoId,
-      storageKey: photo.storageKey
+      photoId
     }
   );
 
@@ -710,7 +709,6 @@ export async function markPhotoDownloaded(
       {
         sessionId,
         photoId,
-        storageKey: photo.storageKey,
         error
       }
     );

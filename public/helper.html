@@ -110,10 +110,10 @@ async function claim() {
   }
 
   sessionId =
-    url.searchParams.get("session");
+    url.searchParams.get("s");
 
   const secret =
-    url.searchParams.get("secret");
+    url.searchParams.get("t");
 
   if (!sessionId || !secret) {
     status("Claim URL is missing session or secret.");
