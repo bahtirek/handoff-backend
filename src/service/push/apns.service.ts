@@ -12,7 +12,7 @@ if (
 ) {
   provider = new apn.Provider({
     token: {
-      key: env.APNS_PRIVATE_KEY,
+      key: env.APNS_PRIVATE_KEY.replace(/\\n/g, "\n"),
       keyId: env.APNS_KEY_ID,
       teamId: env.APNS_TEAM_ID,
     },
